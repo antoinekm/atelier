@@ -31,6 +31,12 @@ export function assertBoardOrgAccess(req: Request) {
   throw forbidden("Company membership or instance admin access required");
 }
 
+export function assertBoardOrAgent(req: Request) {
+  if (req.actor.type !== "board" && req.actor.type !== "agent") {
+    throw forbidden("Board or agent access required");
+  }
+}
+
 export function assertInstanceAdmin(req: Request) {
   assertBoard(req);
   if (req.actor.source === "local_implicit" || req.actor.isInstanceAdmin) {

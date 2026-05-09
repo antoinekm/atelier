@@ -1,5 +1,5 @@
 group "default" {
-  targets = ["base", "claude"]
+  targets = ["base", "claude", "codex"]
 }
 
 variable "VERSION" { default = "dev" }
@@ -17,6 +17,16 @@ target "claude" {
   dockerfile = "docker/agent-runtime/Dockerfile.claude"
   platforms = ["linux/amd64", "linux/arm64"]
   tags = ["${REGISTRY}/agent-runtime-claude:${VERSION}"]
+  contexts = {
+    "paperclipai/agent-runtime-base:${VERSION}" = "target:base"
+  }
+}
+
+target "codex" {
+  context = "."
+  dockerfile = "docker/agent-runtime/Dockerfile.codex"
+  platforms = ["linux/amd64", "linux/arm64"]
+  tags = ["${REGISTRY}/agent-runtime-codex:${VERSION}"]
   contexts = {
     "paperclipai/agent-runtime-base:${VERSION}" = "target:base"
   }

@@ -33,4 +33,11 @@ describe("adapter defaults registry", () => {
     const sample: AdapterDefaults = { runtimeImage: "x", envKeys: [], allowFqdns: [] };
     expect(sample.runtimeImage).toBe("x");
   });
+
+  it("codex_local has expected env + fqdn defaults", () => {
+    const d = getAdapterDefaults("codex_local");
+    expect(d.runtimeImage).toMatch(/agent-runtime-codex/);
+    expect(d.envKeys).toContain("OPENAI_API_KEY");
+    expect(d.allowFqdns).toContain("api.openai.com");
+  });
 });

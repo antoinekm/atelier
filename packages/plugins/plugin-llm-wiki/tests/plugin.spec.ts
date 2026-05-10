@@ -2867,6 +2867,52 @@ Duplicate headings receive stable suffixes.
     expect(archived).toBe(true);
   });
 
+  it("restores an archived non-default space through update-space", async () => {
+    const harness = createTestHarness({ manifest });
+    const spaceRow = wikiSpaceRow({
+      id: "77777777-7777-4777-8777-7777777777b2",
+      slug: "qa-space",
+      displayName: "QA Space",
+      pathPrefix: "spaces/qa-space",
+      status: "archived",
+    });
+    let restored = false;
+    const originalQuery = harness.ctx.db.query.bind(harness.ctx.db);
+    harness.ctx.db.query = async <T,>(sql: string, params?: unknown[]) => {
+      harness.dbQueries.push({ sql, params });
+      if (sql.includes("wiki_spaces") && params?.[2] === "qa-space") {
+        if (!restored && sql.includes("status <> 'archived'")) return [] as T[];
+        return [{
+          ...spaceRow,
+          status: restored ? "active" : "archived",
+        }] as T[];
+      }
+      return originalQuery<T>(sql, params);
+    };
+    const originalExecute = harness.ctx.db.execute.bind(harness.ctx.db);
+    harness.ctx.db.execute = async (sql: string, params?: unknown[]) => {
+      if (sql.includes("UPDATE") && sql.includes("wiki_spaces") && params?.includes("active")) restored = true;
+      return originalExecute(sql, params);
+    };
+
+    await plugin.definition.setup(harness.ctx);
+    const updated = await harness.performAction<{
+      status: string;
+      space: { slug: string; status: string };
+    }>("update-space", {
+      companyId: COMPANY_ID,
+      spaceSlug: "qa-space",
+      status: "active",
+    });
+
+    expect(updated.status).toBe("ok");
+    expect(updated.space).toMatchObject({
+      slug: "qa-space",
+      status: "active",
+    });
+    expect(restored).toBe(true);
+  });
+
   it("rejects unknown space statuses through update-space", async () => {
     const harness = createTestHarness({ manifest });
     await plugin.definition.setup(harness.ctx);

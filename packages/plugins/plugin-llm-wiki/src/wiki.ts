@@ -1367,6 +1367,25 @@ export async function resolveSpace(ctx: PluginContext, input: SpaceInput): Promi
   return wikiSpaceFromRow(rows[0]);
 }
 
+async function resolveSpaceAnyStatus(ctx: PluginContext, input: SpaceInput): Promise<WikiSpace> {
+  const wikiId = normalizeWikiId(input.wikiId);
+  const slug = normalizeSpaceSlug(input.spaceSlug);
+  if (slug === DEFAULT_SPACE_SLUG) {
+    return ensureDefaultSpace(ctx, { companyId: input.companyId, wikiId });
+  }
+  const rows = await ctx.db.query<WikiSpaceRow>(
+    `SELECT id, company_id, wiki_id, slug, display_name, space_type, folder_mode, root_folder_key,
+            path_prefix, configured_root_path, access_scope, owner_user_id, owner_agent_id, team_key,
+            settings, status, created_at::text AS created_at, updated_at::text AS updated_at
+       FROM ${spaceTable(ctx)}
+      WHERE company_id = $1 AND wiki_id = $2 AND slug = $3
+      LIMIT 1`,
+    [input.companyId, wikiId, slug],
+  );
+  if (!rows[0]) throw new Error(`LLM Wiki space not found: ${slug}`);
+  return wikiSpaceFromRow(rows[0]);
+}
+
 export async function listSpaces(ctx: PluginContext, input: { companyId: string; wikiId?: string | null }): Promise<{ spaces: WikiSpace[] }> {
   const wikiId = normalizeWikiId(input.wikiId);
   await ensureDefaultSpace(ctx, { companyId: input.companyId, wikiId });
@@ -1440,12 +1459,12 @@ export async function createSpace(ctx: PluginContext, input: CreateSpaceInput): 
 }
 
 export async function updateSpace(ctx: PluginContext, input: UpdateSpaceInput): Promise<{ status: "ok"; space: WikiSpace }> {
-  const space = await resolveSpace(ctx, input);
-  const nextDisplayName = stringField(input.displayName);
   const nextStatus = input.status ?? null;
   if (nextStatus !== null && nextStatus !== "active" && nextStatus !== "archived") {
     throw new Error("LLM Wiki space status must be active or archived.");
   }
+  const space = nextStatus === "active" ? await resolveSpaceAnyStatus(ctx, input) : await resolveSpace(ctx, input);
+  const nextDisplayName = stringField(input.displayName);
   if (space.slug === DEFAULT_SPACE_SLUG && nextStatus === "archived") {
     throw new Error("The default LLM Wiki space cannot be archived.");
   }

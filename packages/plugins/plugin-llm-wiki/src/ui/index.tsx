@@ -2829,7 +2829,7 @@ function SpaceRowMenu({
 
   const handleArchive = async () => {
     if (!companyId || isDefault || busy) return;
-    if (typeof window !== "undefined" && !window.confirm(`Archive ${space.displayName}? Pages remain on disk; you can restore from settings.`)) {
+    if (typeof window !== "undefined" && !window.confirm(`Archive ${space.displayName}? Pages remain on disk; you can restore later through the plugin API or by un-archiving from the database.`)) {
       return;
     }
     setBusy(true);
@@ -6768,7 +6768,7 @@ function SpaceEditCard({
 
   async function archive() {
     if (!companyId || isDefault || isOnlySpace || archiveBusy) return;
-    if (typeof window !== "undefined" && !window.confirm(`Archive ${space.displayName}? Pages stay on disk; you can restore by un-archiving from the database.`)) {
+    if (typeof window !== "undefined" && !window.confirm(`Archive ${space.displayName}? Pages stay on disk; you can restore later through the plugin API or by un-archiving from the database.`)) {
       return;
     }
     setArchiveBusy(true);

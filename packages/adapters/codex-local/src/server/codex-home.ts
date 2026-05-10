@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { AdapterExecutionContext } from "@paperclipai/adapter-utils";
-import { resolvePaperclipSpaceRootForAdapter } from "@paperclipai/adapter-utils/server-utils";
+import { resolvePaperclipInstanceRootForAdapter } from "@paperclipai/adapter-utils/server-utils";
 
 const TRUTHY_ENV_RE = /^(1|true|yes|on)$/i;
 const COPIED_SHARED_FILES = ["config.json", "config.toml", "instructions.md"] as const;
@@ -31,15 +31,14 @@ export function resolveManagedCodexHomeDir(
   env: NodeJS.ProcessEnv,
   companyId?: string,
 ): string {
-  const spaceRoot = resolvePaperclipSpaceRootForAdapter({
+  const instanceRoot = resolvePaperclipInstanceRootForAdapter({
     homeDir: nonEmpty(env.PAPERCLIP_HOME) ?? undefined,
     instanceId: nonEmpty(env.PAPERCLIP_INSTANCE_ID) ?? undefined,
-    spaceId: nonEmpty(env.PAPERCLIP_SPACE_ID) ?? undefined,
     env,
   });
   return companyId
-    ? path.resolve(spaceRoot, "companies", companyId, "codex-home")
-    : path.resolve(spaceRoot, "codex-home");
+    ? path.resolve(instanceRoot, "companies", companyId, "codex-home")
+    : path.resolve(instanceRoot, "codex-home");
 }
 
 async function ensureParentDir(target: string): Promise<void> {

@@ -5,7 +5,7 @@ import {
   expandHomePrefix,
   resolveDefaultBackupDir,
   resolvePaperclipConfigPathForInstance,
-} from "@paperclipai/shared/space-paths";
+} from "@paperclipai/shared/home-paths";
 
 type PartialConfig = {
   database?: {

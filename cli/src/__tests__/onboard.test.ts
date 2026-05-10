@@ -89,7 +89,6 @@ describe("onboard", () => {
     delete process.env.PAPERCLIP_HOME;
     delete process.env.PAPERCLIP_CONFIG;
     delete process.env.PAPERCLIP_INSTANCE_ID;
-    delete process.env.PAPERCLIP_SPACE_ID;
     delete process.env.PAPERCLIP_BIND;
     delete process.env.PAPERCLIP_BIND_HOST;
     delete process.env.PAPERCLIP_TAILNET_BIND_HOST;
@@ -135,8 +134,8 @@ describe("onboard", () => {
     expect(raw.server.host).toBe("127.0.0.1");
   });
 
-  it("creates default-space config and data paths for a fresh PAPERCLIP_HOME", async () => {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), "paperclip-onboard-space-"));
+  it("creates instance-root config and data paths for a fresh PAPERCLIP_HOME", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "paperclip-onboard-home-"));
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "paperclip-onboard-cwd-"));
     process.chdir(cwd);
     process.env.PAPERCLIP_HOME = home;
@@ -144,24 +143,16 @@ describe("onboard", () => {
     await onboard({ yes: true, invokedByRun: true });
 
     const instanceRoot = path.join(home, "instances", "default");
-    const spaceRoot = path.join(instanceRoot, "spaces", "default");
-    const configPath = path.join(spaceRoot, "config.json");
-    const registryPath = path.join(instanceRoot, "config.json");
+    const configPath = path.join(instanceRoot, "config.json");
     const raw = JSON.parse(fs.readFileSync(configPath, "utf8")) as PaperclipConfig;
-    const registry = JSON.parse(fs.readFileSync(registryPath, "utf8")) as { activeSpaceId?: string };
 
-    expect(registry.activeSpaceId).toBe("default");
-    expect(raw.database.embeddedPostgresDataDir).toBe(path.join(spaceRoot, "db"));
-    expect(raw.database.backup.dir).toBe(path.join(spaceRoot, "data", "backups"));
-    expect(raw.logging.logDir).toBe(path.join(spaceRoot, "logs"));
-    expect(raw.storage.localDisk.baseDir).toBe(path.join(spaceRoot, "data", "storage"));
-    expect(raw.secrets.localEncrypted.keyFilePath).toBe(path.join(spaceRoot, "secrets", "master.key"));
-    expect(fs.existsSync(path.join(spaceRoot, ".env"))).toBe(true);
-    expect(fs.existsSync(path.join(spaceRoot, "secrets", "master.key"))).toBe(true);
-
-    for (const rootName of ["db", "data", "secrets", "logs", "workspaces", "projects", "companies"]) {
-      expect(fs.existsSync(path.join(instanceRoot, rootName))).toBe(false);
-    }
+    expect(raw.database.embeddedPostgresDataDir).toBe(path.join(instanceRoot, "db"));
+    expect(raw.database.backup.dir).toBe(path.join(instanceRoot, "data", "backups"));
+    expect(raw.logging.logDir).toBe(path.join(instanceRoot, "logs"));
+    expect(raw.storage.localDisk.baseDir).toBe(path.join(instanceRoot, "data", "storage"));
+    expect(raw.secrets.localEncrypted.keyFilePath).toBe(path.join(instanceRoot, "secrets", "master.key"));
+    expect(fs.existsSync(path.join(instanceRoot, ".env"))).toBe(true);
+    expect(fs.existsSync(path.join(instanceRoot, "secrets", "master.key"))).toBe(true);
   });
 
   it("supports authenticated/private quickstart bind presets", async () => {

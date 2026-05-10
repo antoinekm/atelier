@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { AdapterExecutionContext } from "@paperclipai/adapter-utils";
-import { resolvePaperclipSpaceRootForAdapter } from "@paperclipai/adapter-utils/server-utils";
+import { resolvePaperclipInstanceRootForAdapter } from "@paperclipai/adapter-utils/server-utils";
 
 const SEEDED_SHARED_FILES = [
   ".credentials.json",
@@ -92,15 +92,14 @@ export function resolveManagedClaudeConfigSeedDir(
   env: NodeJS.ProcessEnv,
   companyId?: string,
 ): string {
-  const spaceRoot = resolvePaperclipSpaceRootForAdapter({
+  const instanceRoot = resolvePaperclipInstanceRootForAdapter({
     homeDir: nonEmpty(env.PAPERCLIP_HOME) ?? undefined,
     instanceId: nonEmpty(env.PAPERCLIP_INSTANCE_ID) ?? undefined,
-    spaceId: nonEmpty(env.PAPERCLIP_SPACE_ID) ?? undefined,
     env,
   });
   return companyId
-    ? path.resolve(spaceRoot, "companies", companyId, "claude-config-seed")
-    : path.resolve(spaceRoot, "claude-config-seed");
+    ? path.resolve(instanceRoot, "companies", companyId, "claude-config-seed")
+    : path.resolve(instanceRoot, "claude-config-seed");
 }
 
 export async function prepareClaudeConfigSeed(

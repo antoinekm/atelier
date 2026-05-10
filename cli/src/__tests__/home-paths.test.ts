@@ -24,8 +24,7 @@ describe("home path resolution", () => {
     const paths = describeLocalInstancePaths();
     expect(paths.homeDir).toBe(home);
     expect(paths.instanceId).toBe("default");
-    expect(paths.activeSpaceId).toBe("default");
-    expect(paths.configPath).toBe(path.resolve(home, "instances", "default", "spaces", "default", "config.json"));
+    expect(paths.configPath).toBe(path.resolve(home, "instances", "default", "config.json"));
   });
 
   it("supports PAPERCLIP_HOME and explicit instance ids", () => {

@@ -106,25 +106,23 @@ describe("resolveDatabaseTarget", () => {
     });
   });
 
-  it("uses spaces/default for a fresh default embedded postgres target", () => {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), "paperclip-db-space-"));
+  it("uses the instance root for a fresh default embedded postgres target", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "paperclip-db-home-"));
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "paperclip-db-cwd-"));
     process.chdir(cwd);
     process.env.PAPERCLIP_HOME = home;
     delete process.env.PAPERCLIP_CONFIG;
     delete process.env.DATABASE_URL;
-    delete process.env.PAPERCLIP_INSTANCE_ID;
-    delete process.env.PAPERCLIP_SPACE_ID;
 
     const target = resolveDatabaseTarget();
 
     expect(target).toMatchObject({
       mode: "embedded-postgres",
-      dataDir: path.join(home, "instances", "default", "spaces", "default", "db"),
+      dataDir: path.join(home, "instances", "default", "db"),
       port: 54329,
       source: "embedded-postgres@54329",
-      configPath: path.join(home, "instances", "default", "spaces", "default", "config.json"),
-      envPath: path.join(home, "instances", "default", "spaces", "default", ".env"),
+      configPath: path.join(home, "instances", "default", "config.json"),
+      envPath: path.join(home, "instances", "default", ".env"),
     });
   });
 });

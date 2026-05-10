@@ -927,24 +927,36 @@ export function recoveryService(db: Db, deps: { enqueueWakeup: RecoveryWakeup })
     ].join("\n");
   }
 
-  function isUniqueStaleRunEvaluationConflict(error: unknown) {
-    if (!error || typeof error !== "object") return false;
-    const maybe = error as { code?: string; constraint?: string; message?: string };
-    return maybe.code === "23505" &&
-      (
-        maybe.constraint === "issues_active_stale_run_evaluation_uq" ||
-        typeof maybe.message === "string" && maybe.message.includes("issues_active_stale_run_evaluation_uq")
+  function collectDatabaseErrorChain(error: unknown): Array<{ code?: string; constraint?: string; message?: string }> {
+    let current = error;
+    const seen = new Set<unknown>();
+    const chain: Array<{ code?: string; constraint?: string; message?: string }> = [];
+    while (current && typeof current === "object" && !seen.has(current)) {
+      seen.add(current);
+      const maybe = current as { code?: string; constraint?: string; message?: string; cause?: unknown };
+      if (typeof maybe.code === "string" || typeof maybe.constraint === "string" || typeof maybe.message === "string") {
+        chain.push(maybe);
+      }
+      current = maybe.cause;
+    }
+    return chain;
+  }
+
+  function isUniqueConstraintConflict(error: unknown, constraintName: string) {
+    const chain = collectDatabaseErrorChain(error);
+    return chain.some((entry) => entry.code === "23505") &&
+      chain.some((entry) =>
+        entry.constraint === constraintName ||
+        typeof entry.message === "string" && entry.message.includes(constraintName)
       );
   }
 
+  function isUniqueStaleRunEvaluationConflict(error: unknown) {
+    return isUniqueConstraintConflict(error, "issues_active_stale_run_evaluation_uq");
+  }
+
   function isUniqueStrandedIssueRecoveryConflict(error: unknown) {
-    if (!error || typeof error !== "object") return false;
-    const maybe = error as { code?: string; constraint?: string; message?: string };
-    return maybe.code === "23505" &&
-      (
-        maybe.constraint === "issues_active_stranded_issue_recovery_uq" ||
-        typeof maybe.message === "string" && maybe.message.includes("issues_active_stranded_issue_recovery_uq")
-      );
+    return isUniqueConstraintConflict(error, "issues_active_stranded_issue_recovery_uq");
   }
 
   async function ensureSourceIssueBlockedByStaleEvaluation(input: {

@@ -159,42 +159,36 @@ For a separate review-oriented container that keeps `codex`/`claude` login state
 
 ## Local Instance Layout
 
-Every local install nests instance metadata, the active space, and runtime state under `~/.paperclip/`:
+Every local install keeps runtime state directly under the selected instance root:
 
 ```text
-~/.paperclip/instances/default/                  # instance root (cross-space metadata only)
-  config.json                                    # space registry (activeSpaceId, known spaces)
-  spaces/
-    default/                                     # active space root
-      config.json                                # space runtime config
-      .env                                       # space-scoped env file
-      db/                                        # embedded PostgreSQL data
-      data/
-        storage/                                 # local_disk uploads
-        backups/                                 # automatic DB backups
-      logs/
-      secrets/master.key                         # local_encrypted master key
-      workspaces/<agent-id>/                     # default agent workspaces
-      projects/                                  # project execution workspaces
-      companies/<company-id>/codex-home/         # per-company codex_local home
+~/.paperclip/instances/default/                  # instance root
+  config.json                                    # runtime config
+  .env                                           # instance env file
+  db/                                            # embedded PostgreSQL data
+  data/
+    storage/                                     # local_disk uploads
+    backups/                                     # automatic DB backups
+  logs/
+  secrets/master.key                             # local_encrypted master key
+  workspaces/<agent-id>/                         # default agent workspaces
+  projects/                                      # project execution workspaces
+  companies/<company-id>/codex-home/             # per-company codex_local home
 ```
 
-The instance root no longer doubles as the default space. New installs created by `paperclipai onboard`, `paperclipai run`, and `paperclipai configure` always write the registry at `instances/<id>/config.json` and put runtime data under `spaces/default/`. To migrate an older root-shaped install in place, see [Migrating a Legacy Default-Space Install](CLI.md#migrating-a-legacy-default-space-install).
-
-`PAPERCLIP_HOME`, `PAPERCLIP_INSTANCE_ID`, and `PAPERCLIP_SPACE_ID` override the home root, instance id, and active space respectively. `paperclipai onboard` echoes the resolved values in its banner (`Local home: <home> | instance: <id> | space: <id> | config: <path>`) so you can confirm where state will land before continuing.
+`PAPERCLIP_HOME` and `PAPERCLIP_INSTANCE_ID` override the home root and instance id respectively. `paperclipai onboard` echoes the resolved values in its banner (`Local home: <home> | instance: <id> | config: <path>`) so you can confirm where state will land before continuing.
 
 ## Database in Dev (Auto-Handled)
 
 For local development, leave `DATABASE_URL` unset.
 The server will automatically use embedded PostgreSQL and persist data at:
 
-- `~/.paperclip/instances/default/spaces/default/db`
+- `~/.paperclip/instances/default/db`
 
-Override home, instance, or space:
+Override home or instance:
 
 ```sh
 PAPERCLIP_HOME=/custom/path PAPERCLIP_INSTANCE_ID=dev pnpm paperclipai run
-PAPERCLIP_SPACE_ID=staging pnpm paperclipai run
 ```
 
 No Docker or external database is required for this mode.
@@ -203,7 +197,7 @@ No Docker or external database is required for this mode.
 
 For local development, the default storage provider is `local_disk`, which persists uploaded images/attachments at:
 
-- `~/.paperclip/instances/default/spaces/default/data/storage`
+- `~/.paperclip/instances/default/data/storage`
 
 Configure storage provider/settings:
 
@@ -213,15 +207,15 @@ pnpm paperclipai configure --section storage
 
 ## Default Agent Workspaces
 
-When a local agent run has no resolved project/session workspace, Paperclip falls back to an agent home workspace under the active space:
+When a local agent run has no resolved project/session workspace, Paperclip falls back to an agent home workspace under the instance root:
 
-- `~/.paperclip/instances/default/spaces/default/workspaces/<agent-id>`
+- `~/.paperclip/instances/default/workspaces/<agent-id>`
 
-This path honors `PAPERCLIP_HOME`, `PAPERCLIP_INSTANCE_ID`, and `PAPERCLIP_SPACE_ID` in non-default setups.
+This path honors `PAPERCLIP_HOME` and `PAPERCLIP_INSTANCE_ID` in non-default setups.
 
-For `codex_local`, Paperclip also manages a per-company Codex home under the active space and seeds it from the shared Codex login/config home (`$CODEX_HOME` or `~/.codex`):
+For `codex_local`, Paperclip also manages a per-company Codex home under the instance root and seeds it from the shared Codex login/config home (`$CODEX_HOME` or `~/.codex`):
 
-- `~/.paperclip/instances/default/spaces/default/companies/<company-id>/codex-home`
+- `~/.paperclip/instances/default/companies/<company-id>/codex-home`
 
 If the `codex` CLI is not installed or not on `PATH`, `codex_local` agent runs fail at execution time with a clear adapter error. Quota polling uses a short-lived `codex app-server` subprocess: when `codex` cannot be spawned, that provider reports `ok: false` in aggregated quota results and the API server keeps running (it must not exit on a missing binary).
 
@@ -307,13 +301,13 @@ paperclipai worktree init --from-data-dir ~/.paperclip
 paperclipai worktree init --force
 ```
 
-Repair an already-created repo-managed worktree and reseed its isolated instance from the main default install. Point `--from-config` at the active space config (`spaces/default/config.json` for post-migration installs; the legacy `~/.paperclip/instances/default/config.json` still works on root-shaped installs that haven't run `paperclipai spaces migrate-default` yet):
+Repair an already-created repo-managed worktree and reseed its isolated instance from the main default install. Point `--from-config` at the instance config:
 
 ```sh
 cd /path/to/paperclip/.paperclip/worktrees/PAP-884-ai-commits-component
 pnpm paperclipai worktree init --force --seed-mode minimal \
   --name PAP-884-ai-commits-component \
-  --from-config ~/.paperclip/instances/default/spaces/default/config.json
+  --from-config ~/.paperclip/instances/default/config.json
 ```
 
 That rewrites the worktree-local `.paperclip/config.json` + `.paperclip/.env`, recreates the isolated instance under `~/.paperclip-worktrees/instances/<worktree-id>/`, and preserves the git worktree contents themselves.
@@ -438,11 +432,9 @@ Expected:
 To wipe local dev data and start fresh:
 
 ```sh
-rm -rf ~/.paperclip/instances/default/spaces/default/db
+rm -rf ~/.paperclip/instances/default/db
 pnpm dev
 ```
-
-If you migrated from a legacy root-shaped install and still have a stale `~/.paperclip/instances/default/db`, remove that too — but only after confirming `paperclipai spaces migrate-default` ran and the active database lives under `spaces/default/`.
 
 ## Optional: Use External Postgres
 
@@ -457,7 +449,7 @@ schemas. Defaults:
 - enabled
 - every 60 minutes
 - retain 30 days
-- backup dir: `~/.paperclip/instances/default/spaces/default/data/backups`
+- backup dir: `~/.paperclip/instances/default/data/backups`
 
 Configure these in:
 
@@ -488,7 +480,7 @@ those providers are enabled.
 
 Agent env vars now support secret references. By default, secret values are stored with local encryption and only secret refs are persisted in agent config.
 
-- Default local key path: `~/.paperclip/instances/default/spaces/default/secrets/master.key`
+- Default local key path: `~/.paperclip/instances/default/secrets/master.key`
 - Override key material directly: `PAPERCLIP_SECRETS_MASTER_KEY`
 - Override key file path: `PAPERCLIP_SECRETS_MASTER_KEY_FILE`
 - Back up the key file and database together; either one alone is not enough to restore local encrypted secrets.

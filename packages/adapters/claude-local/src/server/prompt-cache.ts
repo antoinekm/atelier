@@ -5,7 +5,7 @@ import { createHash, type Hash } from "node:crypto";
 import type { AdapterExecutionContext } from "@paperclipai/adapter-utils";
 import {
   ensurePaperclipSkillSymlink,
-  resolvePaperclipSpaceRootForAdapter,
+  resolvePaperclipInstanceRootForAdapter,
   type PaperclipSkillEntry,
 } from "@paperclipai/adapter-utils/server-utils";
 
@@ -26,14 +26,13 @@ function resolveManagedClaudePromptCacheRoot(
   env: NodeJS.ProcessEnv,
   companyId: string,
 ): string {
-  const spaceRoot = resolvePaperclipSpaceRootForAdapter({
+  const instanceRoot = resolvePaperclipInstanceRootForAdapter({
     homeDir: nonEmpty(env.PAPERCLIP_HOME) ?? undefined,
     instanceId: nonEmpty(env.PAPERCLIP_INSTANCE_ID) ?? undefined,
-    spaceId: nonEmpty(env.PAPERCLIP_SPACE_ID) ?? undefined,
     env,
   });
   return path.resolve(
-    spaceRoot,
+    instanceRoot,
     "companies",
     companyId,
     "claude-prompt-cache",

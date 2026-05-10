@@ -13,8 +13,7 @@ import {
   resolvePaperclipHomeDir,
   resolvePaperclipInstanceId,
   resolvePaperclipInstanceRoot,
-  resolvePaperclipSpaceRoot,
-} from "@paperclipai/shared/space-paths";
+} from "@paperclipai/shared/home-paths";
 
 export {
   expandHomePrefix,
@@ -22,18 +21,10 @@ export {
   resolvePaperclipHomeDir,
   resolvePaperclipInstanceId,
   resolvePaperclipInstanceRoot,
-  resolvePaperclipSpaceRoot,
 };
 
-const defaultConfigPathCache = new Map<string, string>();
-
 export function resolveDefaultConfigPath(): string {
-  const cacheKey = `${process.env.PAPERCLIP_HOME ?? ""}\0${process.env.PAPERCLIP_INSTANCE_ID ?? ""}`;
-  const cached = defaultConfigPathCache.get(cacheKey);
-  if (cached) return cached;
-  const resolved = resolvePaperclipConfigPathForInstance();
-  defaultConfigPathCache.set(cacheKey, resolved);
-  return resolved;
+  return resolvePaperclipConfigPathForInstance();
 }
 
 export function resolveDefaultEmbeddedPostgresDir(): string {
@@ -61,7 +52,7 @@ export function resolveDefaultAgentWorkspaceDir(agentId: string): string {
   if (!PATH_SEGMENT_RE.test(trimmed)) {
     throw new Error(`Invalid agent id for workspace path '${agentId}'.`);
   }
-  return path.resolve(resolvePaperclipSpaceRoot(), "workspaces", trimmed);
+  return path.resolve(resolvePaperclipInstanceRoot(), "workspaces", trimmed);
 }
 
 function sanitizeFriendlyPathSegment(value: string | null | undefined, fallback = "_default"): string {
@@ -84,7 +75,7 @@ export function resolveManagedProjectWorkspaceDir(input: {
     throw new Error("Managed project workspace path requires companyId and projectId.");
   }
   return path.resolve(
-    resolvePaperclipSpaceRoot(),
+    resolvePaperclipInstanceRoot(),
     "projects",
     sanitizeFriendlyPathSegment(companyId, "company"),
     sanitizeFriendlyPathSegment(projectId, "project"),

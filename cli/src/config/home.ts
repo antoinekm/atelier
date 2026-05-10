@@ -11,24 +11,17 @@ import {
   resolvePaperclipHomeDir,
   resolvePaperclipInstanceId,
   resolvePaperclipInstanceRoot as resolveSharedPaperclipInstanceRoot,
-  resolvePaperclipSpaceId,
-  resolvePaperclipSpaceRoot as resolveSharedPaperclipSpaceRoot,
-} from "@paperclipai/shared/space-paths";
+} from "@paperclipai/shared/home-paths";
 
 export {
   expandHomePrefix,
   resolveHomeAwarePath,
   resolvePaperclipHomeDir,
   resolvePaperclipInstanceId,
-  resolvePaperclipSpaceId,
 };
 
 export function resolvePaperclipInstanceRoot(instanceId?: string): string {
   return resolveSharedPaperclipInstanceRoot({ instanceId });
-}
-
-export function resolvePaperclipSpaceRoot(instanceId?: string): string {
-  return resolveSharedPaperclipSpaceRoot({ instanceId });
 }
 
 export function resolveDefaultConfigPath(instanceId?: string): string {
@@ -66,17 +59,10 @@ export function resolveDefaultBackupDir(instanceId?: string): string {
 export function describeLocalInstancePaths(instanceId?: string) {
   const resolvedInstanceId = resolvePaperclipInstanceId(instanceId);
   const instanceRoot = resolvePaperclipInstanceRoot(resolvedInstanceId);
-  const activeSpaceId = resolvePaperclipSpaceId({ instanceId: resolvedInstanceId });
-  const activeSpaceRoot = resolveSharedPaperclipSpaceRoot({
-    instanceId: resolvedInstanceId,
-    spaceId: activeSpaceId,
-  });
   return {
     homeDir: resolvePaperclipHomeDir(),
     instanceId: resolvedInstanceId,
     instanceRoot,
-    activeSpaceId,
-    activeSpaceRoot,
     configPath: resolveDefaultConfigPath(resolvedInstanceId),
     embeddedPostgresDataDir: resolveDefaultEmbeddedPostgresDir(resolvedInstanceId),
     backupDir: resolveDefaultBackupDir(resolvedInstanceId),

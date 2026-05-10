@@ -188,6 +188,8 @@ describe("acpx_local runtime skill isolation", () => {
       paperclipHome,
       "instances",
       paperclipInstanceId,
+      "spaces",
+      "default",
       "companies",
       "company-1",
       "codex-home",

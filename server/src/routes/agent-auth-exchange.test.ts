@@ -9,6 +9,7 @@ function deps(overrides?: Partial<AgentAuthExchangeDeps>): AgentAuthExchangeDeps
         binding: { agentId: "a-1", companyId: "c-1", runId: "r-1", jobUid: "j-1" },
       })),
       mint: vi.fn(),
+      purgeExpired: vi.fn(async () => 0),
     },
     runJwt: {
       mint: vi.fn(() => "fake.jwt.value"),
@@ -32,6 +33,7 @@ describe("POST /api/agent-auth/exchange", () => {
       bootstrapTokens: {
         validateAndConsume: async () => ({ ok: false as const, reason: "already_consumed" as const }),
         mint: vi.fn(),
+        purgeExpired: vi.fn(async () => 0),
       },
     }));
     const res = await handler({ bootstrapToken: "bst_abc" });
@@ -44,6 +46,7 @@ describe("POST /api/agent-auth/exchange", () => {
       bootstrapTokens: {
         validateAndConsume: async () => ({ ok: false as const, reason: "expired" as const }),
         mint: vi.fn(),
+        purgeExpired: vi.fn(async () => 0),
       },
     }));
     const res = await handler({ bootstrapToken: "bst_abc" });
@@ -56,6 +59,7 @@ describe("POST /api/agent-auth/exchange", () => {
       bootstrapTokens: {
         validateAndConsume: async () => ({ ok: false as const, reason: "not_found" as const }),
         mint: vi.fn(),
+        purgeExpired: vi.fn(async () => 0),
       },
     }));
     const res = await handler({ bootstrapToken: "bst_xyz" });

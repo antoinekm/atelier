@@ -17,7 +17,7 @@ describe("buildCiliumAgentEgressPolicy", () => {
     expect(fqdns).toEqual(["*.acme.io", "*.anthropic.com", "github.com"]);
   });
 
-  it("uses tenant Cilium DNS allowlist as the effective FQDN set when supplied", () => {
+  it("folds tenant Cilium DNS allowlist into the baseline FQDN set when supplied", () => {
     const p = buildCiliumAgentEgressPolicy({
       namespace: "paperclip-acme",
       companyId: "c-1",
@@ -30,7 +30,7 @@ describe("buildCiliumAgentEgressPolicy", () => {
     const fqdns = p.spec.egress[0].toFQDNs!.map((f: { matchPattern?: string; matchName?: string }) =>
       f.matchPattern ?? f.matchName,
     );
-    expect(fqdns).toEqual(["api.anthropic.com"]);
+    expect(fqdns).toEqual(["*.acme.io", "*.anthropic.com", "api.anthropic.com", "github.com"]);
   });
 
   it("folds tenant Cilium CIDRs into the same policy instead of emitting a second allow policy", () => {

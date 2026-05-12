@@ -8,6 +8,11 @@ export interface RunJwtClaims {
   exp: number; // unix seconds
 }
 
+interface RunJwtHeader {
+  alg: string;
+  typ?: string;
+}
+
 export interface MintInput extends Omit<RunJwtClaims, "exp"> { ttlSeconds: number; }
 
 export type VerifyResult =
@@ -53,10 +58,15 @@ export function runJwtService(secret: string): RunJwtService {
       if (givenSig.length !== expectedSig.length || !timingSafeEqual(givenSig, expectedSig)) {
         return { ok: false, reason: "bad_signature" };
       }
+      let header: RunJwtHeader;
       let claims: RunJwtClaims;
       try {
+        header = JSON.parse(b64urlDecode(headerEncoded).toString("utf-8")) as RunJwtHeader;
         claims = JSON.parse(b64urlDecode(claimsEncoded).toString("utf-8")) as RunJwtClaims;
       } catch {
+        return { ok: false, reason: "malformed" };
+      }
+      if (header.alg !== "HS256" || (header.typ !== undefined && header.typ !== "JWT")) {
         return { ok: false, reason: "malformed" };
       }
       if (claims.exp <= Math.floor(Date.now() / 1000)) return { ok: false, reason: "expired" };

@@ -17,6 +17,8 @@ import {
 } from "./workspace-git-credentials.js";
 
 const RUN_JWT_TTL_SECONDS = 3600;
+const BOOTSTRAP_TOKEN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const BOOTSTRAP_TOKEN_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 
 // Sliding-window in-memory rate limiter. Mirrors the shape of
 // company-search-rate-limit.ts; kept inline because these limits are
@@ -175,6 +177,13 @@ export function k8sCallbackRoutes(db: Db, options: K8sCallbackRoutesOptions = {}
   })();
 
   const bootstrapTokens = bootstrapTokensService(db);
+  const bootstrapTokenCleanupTimer = setInterval(() => {
+    bootstrapTokens.purgeExpired({ olderThanMs: BOOTSTRAP_TOKEN_RETENTION_MS })
+      .catch((err: unknown) => {
+        logger.warn({ err }, "bootstrap token retention cleanup failed");
+      });
+  }, BOOTSTRAP_TOKEN_CLEANUP_INTERVAL_MS);
+  if (typeof bootstrapTokenCleanupTimer.unref === "function") bootstrapTokenCleanupTimer.unref();
 
   const exchangeHandler = createAgentAuthExchangeRoute({
     bootstrapTokens,

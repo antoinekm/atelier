@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull, lt } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { bootstrapTokens } from "@paperclipai/db";
 
@@ -26,6 +26,7 @@ export type ValidateResult =
 export interface BootstrapTokensService {
   mint(input: MintInput): Promise<MintResult>;
   validateAndConsume(token: string): Promise<ValidateResult>;
+  purgeExpired(input?: { olderThanMs?: number; now?: Date }): Promise<number>;
 }
 
 function hashToken(token: string): string {
@@ -76,6 +77,17 @@ export function bootstrapTokensService(db: Db): BootstrapTokensService {
       if (!row) return { ok: false, reason: "not_found" };
       if (row.consumedAt) return { ok: false, reason: "already_consumed" };
       return { ok: false, reason: "expired" };
+    },
+
+    async purgeExpired(input = {}) {
+      const olderThanMs = input.olderThanMs ?? 7 * 24 * 60 * 60 * 1000;
+      const now = input.now ?? new Date();
+      const cutoff = new Date(now.getTime() - olderThanMs);
+      const rows = await db
+        .delete(bootstrapTokens)
+        .where(lt(bootstrapTokens.expiresAt, cutoff))
+        .returning({ id: bootstrapTokens.id });
+      return rows.length;
     },
   };
 }

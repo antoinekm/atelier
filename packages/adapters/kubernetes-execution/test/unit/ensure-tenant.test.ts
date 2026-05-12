@@ -161,6 +161,15 @@ describe("ensureTenantNamespace", () => {
     expect(body.spec?.egress?.some((rule) =>
       rule.toFQDNs?.some((fqdn) => fqdn.matchName === "api.anthropic.com")
     )).toBe(true);
+    expect(body.spec?.egress?.some((rule) =>
+      rule.toFQDNs?.some((fqdn) => fqdn.matchPattern === "*.anthropic.com")
+    )).toBe(true);
+    expect(body.spec?.egress?.some((rule) =>
+      rule.toEndpoints?.some((endpoint) =>
+        endpoint.matchLabels?.["paperclip.ai/role"] === "control-plane" &&
+        endpoint.matchLabels?.["app.kubernetes.io/name"] === "paperclip-server"
+      )
+    )).toBe(true);
   });
 
   it("does not apply a tenant-restrict CNP when tenant Cilium DSL is empty", async () => {

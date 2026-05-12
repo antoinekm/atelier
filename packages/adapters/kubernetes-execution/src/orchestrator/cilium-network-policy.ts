@@ -45,7 +45,7 @@ export function buildCiliumAgentEgressPolicy(input: BuildCiliumInput): CiliumNet
   const labels = tenantBaseLabels({ companyId: input.companyId, companySlug: input.companySlug });
   const baselineFqdns = [...input.adapterAllowFqdns, ...input.tenantAllowFqdns];
   const tenantFqdns = input.tenantCiliumDnsAllowlist ?? [];
-  const merged = Array.from(new Set(tenantFqdns.length > 0 ? tenantFqdns : baselineFqdns)).sort();
+  const merged = Array.from(new Set([...baselineFqdns, ...tenantFqdns])).sort();
   const fqdns: CiliumFqdn[] = merged.map(p => p.includes("*") ? { matchPattern: p } : { matchName: p });
   const cidrs = Array.from(new Set(input.tenantCiliumEgressCidrs ?? [])).sort();
 

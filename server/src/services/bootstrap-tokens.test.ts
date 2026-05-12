@@ -77,4 +77,32 @@ describe("bootstrapTokensService", () => {
     expect(oks.length).toBe(1);
     expect(consumedRejections.length).toBe(N - 1);
   });
+
+  it("purges tokens whose expiry is outside the retention window", async () => {
+    const svc = bootstrapTokensService(db);
+    const stale = await svc.mint({
+      agentId: "11111111-1111-1111-1111-111111111114",
+      companyId: "22222222-2222-2222-2222-222222222225",
+      runId: "r-4", jobUid: "job-uid-4",
+      ttlSeconds: -8 * 24 * 60 * 60,
+    });
+    const fresh = await svc.mint({
+      agentId: "11111111-1111-1111-1111-111111111115",
+      companyId: "22222222-2222-2222-2222-222222222226",
+      runId: "r-5", jobUid: "job-uid-5",
+      ttlSeconds: 600,
+    });
+
+    const purged = await svc.purgeExpired({
+      olderThanMs: 7 * 24 * 60 * 60 * 1000,
+      now: new Date(),
+    });
+
+    expect(purged).toBeGreaterThanOrEqual(1);
+    const staleResult = await svc.validateAndConsume(stale.token);
+    expect(staleResult.ok).toBe(false);
+    if (!staleResult.ok) expect(staleResult.reason).toBe("not_found");
+    const freshResult = await svc.validateAndConsume(fresh.token);
+    expect(freshResult.ok).toBe(true);
+  });
 });

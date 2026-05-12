@@ -125,7 +125,7 @@ export async function ensureTenantNamespace(
       tenantCiliumDnsAllowlist: input.tenantPolicy?.ciliumDnsAllowlist ?? [],
       tenantCiliumEgressCidrs: input.tenantPolicy?.ciliumEgressCidrs ?? [],
       controlPlaneSelector: input.controlPlane.topology === "in-cluster"
-        ? { matchLabels: input.controlPlane.namespaceLabels }
+        ? { matchLabels: { ...input.controlPlane.namespaceLabels, ...input.controlPlane.podLabels } }
         : null,
     }));
     ciliumApplied = true;

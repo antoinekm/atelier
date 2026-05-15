@@ -312,6 +312,7 @@ describe("plugin React shim", () => {
 
     for (const name of Object.keys(React).sort()) {
       if (name === "default") continue;
+      if (!/^[A-Za-z_$][\w$]*$/.test(name)) continue;
       expect(source).toContain(`export const ${name} = R.${name};`);
     }
 

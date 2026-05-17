@@ -195,6 +195,14 @@ type RuntimeSecretResolution = {
   manifestEntry: RuntimeSecretManifestEntry;
 };
 
+type SecretResolutionErrorCode =
+  | "binding_missing"
+  | "secret_deleted"
+  | "secret_inactive"
+  | "version_missing"
+  | "version_inactive"
+  | "provider_error";
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
@@ -236,6 +244,33 @@ function canonicalizeBinding(binding: EnvBinding): CanonicalEnvBinding {
 
 function defaultProviderConfigStatus(provider: SecretProvider): SecretProviderConfigStatus {
   return COMING_SOON_SECRET_PROVIDERS.has(provider) ? "coming_soon" : "ready";
+}
+
+function secretResolutionErrorCode(error: unknown): SecretResolutionErrorCode {
+  if (isSecretProviderClientError(error)) return "provider_error";
+  if (error instanceof HttpError) {
+    const details = asRecord(error.details);
+    switch (details?.code) {
+      case "binding_missing":
+      case "secret_deleted":
+      case "secret_inactive":
+      case "version_missing":
+      case "version_inactive":
+      case "provider_error":
+        return details.code;
+    }
+    if (error.message === "Secret is not active") return "secret_inactive";
+    if (error.message === "Secret version not found") return "version_missing";
+    if (error.message === "Secret version is not active") return "version_inactive";
+    if (
+      error.message === "Secret resolution requires a binding config path" ||
+      error.message.startsWith("Secret is not bound to ")
+    ) {
+      return "binding_missing";
+    }
+    if (error.status >= 500) return "provider_error";
+  }
+  return "provider_error";
 }
 
 function assertSelectableProviderConfig(config: {
@@ -321,7 +356,7 @@ export function secretService(db: Db) {
   ) {
     if (!context) return;
     if (!context.configPath) {
-      throw unprocessable("Secret resolution requires a binding config path");
+      throw unprocessable("Secret resolution requires a binding config path", { code: "binding_missing" });
     }
     const binding = await getBinding({
       companyId,
@@ -333,6 +368,7 @@ export function secretService(db: Db) {
     if (!binding) {
       throw unprocessable(
         `Secret is not bound to ${context.consumerType}:${context.consumerId} at ${context.configPath}`,
+        { code: "binding_missing" },
       );
     }
   }
@@ -495,19 +531,24 @@ export function secretService(db: Db) {
     version: number | "latest",
     context?: SecretConsumerContext,
   ): Promise<RuntimeSecretResolution> {
-    const secret = await assertSecretInCompany(companyId, secretId);
+    const secret = await getById(secretId);
+    if (!secret) throw notFound("Secret not found");
+    if (secret.companyId !== companyId) throw unprocessable("Secret must belong to same company");
     const resolvedVersion = version === "latest" ? secret.latestVersion : version;
     const providerId = secret.provider as SecretProvider;
     const configPath = context?.configPath ?? null;
     try {
+      if (secret.status === "deleted") {
+        throw new HttpError(404, "Secret not found", { code: "secret_deleted" });
+      }
       if (secret.status !== "active") {
-        throw unprocessable("Secret is not active");
+        throw unprocessable("Secret is not active", { code: "secret_inactive" });
       }
       await assertBindingContext(companyId, secret.id, context);
       const versionRow = await getSecretVersion(secret.id, resolvedVersion);
-      if (!versionRow) throw notFound("Secret version not found");
+      if (!versionRow) throw new HttpError(404, "Secret version not found", { code: "version_missing" });
       if (versionRow.status === "disabled" || versionRow.status === "destroyed" || versionRow.revokedAt) {
-        throw unprocessable("Secret version is not active");
+        throw unprocessable("Secret version is not active", { code: "version_inactive" });
       }
       const provider = getSecretProvider(providerId);
       const providerConfig = await getSelectableRuntimeProviderConfig({
@@ -555,7 +596,7 @@ export function secretService(db: Db) {
         },
       };
     } catch (err) {
-      const errorCode = err instanceof Error ? err.message.slice(0, 120) : "resolution_failed";
+      const errorCode = secretResolutionErrorCode(err);
       await recordAccessEvent({
         companyId,
         secretId: secret.id,

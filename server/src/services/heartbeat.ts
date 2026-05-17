@@ -331,6 +331,26 @@ type RuntimeConfigSecretResolver = Pick<
   "resolveAdapterConfigForRuntime" | "resolveEnvBindings"
 >;
 
+function isPaperclipRuntimeEnvKey(key: string) {
+  return key.startsWith("PAPERCLIP_");
+}
+
+function stripPaperclipRuntimeEnvBindings(envValue: unknown): Record<string, unknown> | null {
+  const record = parseObject(envValue);
+  const filtered = Object.fromEntries(
+    Object.entries(record).filter(([key]) => !isPaperclipRuntimeEnvKey(key)),
+  );
+  return Object.keys(filtered).length > 0 ? filtered : null;
+}
+
+function stripPaperclipRuntimeEnvFromAdapterConfig(config: Record<string, unknown>): Record<string, unknown> {
+  if (!Object.prototype.hasOwnProperty.call(config, "env")) return config;
+  return {
+    ...config,
+    env: stripPaperclipRuntimeEnvBindings(config.env) ?? {},
+  };
+}
+
 export async function resolveExecutionRunAdapterConfig(input: {
   companyId: string;
   agentId?: string | null;
@@ -343,9 +363,12 @@ export async function resolveExecutionRunAdapterConfig(input: {
   routineEnv?: unknown;
   secretsSvc: RuntimeConfigSecretResolver;
 }) {
+  const executionRunConfig = stripPaperclipRuntimeEnvFromAdapterConfig(input.executionRunConfig);
+  const projectEnv = stripPaperclipRuntimeEnvBindings(input.projectEnv);
+  const routineEnv = stripPaperclipRuntimeEnvBindings(input.routineEnv);
   const { config: resolvedConfig, secretKeys, manifest } = await input.secretsSvc.resolveAdapterConfigForRuntime(
     input.companyId,
-    input.executionRunConfig,
+    executionRunConfig,
     input.agentId
       ? {
           consumerType: "agent",
@@ -357,10 +380,10 @@ export async function resolveExecutionRunAdapterConfig(input: {
         }
       : undefined,
   );
-  const projectEnvResolution = input.projectEnv
+  const projectEnvResolution = projectEnv
     ? await input.secretsSvc.resolveEnvBindings(
         input.companyId,
-        input.projectEnv,
+        projectEnv,
         input.projectId
           ? {
               consumerType: "project",
@@ -382,10 +405,10 @@ export async function resolveExecutionRunAdapterConfig(input: {
       secretKeys.add(key);
     }
   }
-  const routineEnvResolution = input.routineEnv
+  const routineEnvResolution = routineEnv
     ? await input.secretsSvc.resolveEnvBindings(
         input.companyId,
-        input.routineEnv,
+        routineEnv,
         input.routineId
           ? {
               consumerType: "routine",

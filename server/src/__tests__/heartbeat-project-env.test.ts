@@ -104,6 +104,69 @@ describe("resolveExecutionRunAdapterConfig", () => {
     });
   });
 
+  it("drops Paperclip runtime-owned env before resolving agent, project, and routine overlays", async () => {
+    const resolveAdapterConfigForRuntime = vi.fn(async (_companyId, config: Record<string, unknown>) => ({
+      config: {
+        ...config,
+        env: { ...(config.env as Record<string, unknown>) },
+      },
+      secretKeys: new Set<string>(),
+      manifest: [],
+    }));
+    const resolveEnvBindings = vi.fn(async (_companyId, env: Record<string, unknown>) => ({
+      env: Object.fromEntries(
+        Object.entries(env).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+      ),
+      secretKeys: new Set<string>(),
+      manifest: [],
+    }));
+
+    const result = await resolveExecutionRunAdapterConfig({
+      companyId: "company-1",
+      agentId: "agent-1",
+      executionRunConfig: {
+        env: {
+          PAPERCLIP_API_KEY: { type: "secret_ref", secretId: "secret-api-key", version: "latest" },
+          PAPERCLIP_AGENT_ID: "spoofed-agent",
+          AGENT_ONLY: "agent-only",
+        },
+      },
+      projectEnv: {
+        PAPERCLIP_API_KEY: "project-api-key",
+        PAPERCLIP_COMPANY_ID: "spoofed-company",
+        PROJECT_ONLY: "project-only",
+      },
+      routineEnv: {
+        PAPERCLIP_API_KEY: "routine-api-key",
+        PAPERCLIP_RUN_ID: "spoofed-run",
+        ROUTINE_ONLY: "routine-only",
+      },
+      routineId: "routine-1",
+      secretsSvc: {
+        resolveAdapterConfigForRuntime,
+        resolveEnvBindings,
+      } as any,
+    });
+
+    expect(resolveAdapterConfigForRuntime.mock.calls[0]?.[1]).toEqual({
+      env: {
+        AGENT_ONLY: "agent-only",
+      },
+    });
+    expect(resolveEnvBindings.mock.calls[0]?.[1]).toEqual({
+      PROJECT_ONLY: "project-only",
+    });
+    expect(resolveEnvBindings.mock.calls[1]?.[1]).toEqual({
+      ROUTINE_ONLY: "routine-only",
+    });
+    expect(result.resolvedConfig.env).toEqual({
+      AGENT_ONLY: "agent-only",
+      PROJECT_ONLY: "project-only",
+      ROUTINE_ONLY: "routine-only",
+    });
+    expect(JSON.stringify(result.resolvedConfig.env)).not.toContain("PAPERCLIP_");
+  });
+
   it("skips project env resolution when the project has no bindings", async () => {
     const resolveAdapterConfigForRuntime = vi.fn().mockResolvedValue({
       config: { env: { AGENT_ONLY: "agent-only" } },

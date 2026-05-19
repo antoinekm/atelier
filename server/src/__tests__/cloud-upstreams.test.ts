@@ -18,6 +18,32 @@ describe("cloud upstream remote failures", () => {
     });
   });
 
+  it("redacts credential-shaped fields from cloud response details", () => {
+    const body = {
+      error: "bad_request",
+      message: "remote rejected request",
+      accessToken: "upt_secret",
+      nested: {
+        authorization: "Bearer upt_secret",
+        privateKeyPem: "-----BEGIN PRIVATE KEY-----",
+      },
+    };
+
+    expect(cloudUpstreamRemoteFailureReport(new HttpError(400, "bad_request", body))).toEqual({
+      error: "bad_request",
+      errorMessage: "remote rejected request",
+      details: {
+        error: "bad_request",
+        message: "remote rejected request",
+        accessToken: "[redacted]",
+        nested: {
+          authorization: "[redacted]",
+          privateKeyPem: "[redacted]",
+        },
+      },
+    });
+  });
+
   it("falls back to the thrown error message for non-remote failures", () => {
     expect(cloudUpstreamRemoteFailureReport(new Error("network failed"))).toEqual({
       error: "network failed",

@@ -92,10 +92,14 @@ export function CloudUpstream() {
     queryKey: selectedCompanyId ? queryKeys.cloudUpstreams(selectedCompanyId) : ["cloud-upstreams", "__disabled__"],
     queryFn: () => cloudUpstreamsApi.list(selectedCompanyId!),
     enabled: !!selectedCompanyId && cloudSyncEnabled,
+    refetchInterval: (query) =>
+      query.state.data?.runs.some((run) => run.status === "running") ? 2000 : false,
   });
 
   const connection = upstreamQuery.data?.connections[0] ?? null;
-  const latestRun = activeRun ?? upstreamQuery.data?.runs[0] ?? null;
+  const latestRun = activeRun
+    ? upstreamQuery.data?.runs.find((run) => run.id === activeRun.id) ?? activeRun
+    : upstreamQuery.data?.runs[0] ?? null;
 
   const callbackParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const code = callbackParams.get("code");
@@ -165,9 +169,11 @@ export function CloudUpstream() {
       cloudUpstreamsApi.createRun(input.connectionId, { retryOfRunId: input.retryOfRunId ?? null }),
     onSuccess: async (run) => {
       setActiveRun(run);
-      setNotice(run.status === "succeeded"
-        ? "Push run completed. Review activation before unpausing automations."
-        : "Push run failed. Review the run events and retry after correcting the issue.");
+      setNotice(run.status === "running"
+        ? "Push run started. Progress will update while the upload continues."
+        : run.status === "succeeded"
+          ? "Push run completed. Review activation before unpausing automations."
+          : "Push run failed. Review the run events and retry after correcting the issue.");
       setActionError(null);
       await invalidateUpstreams();
     },

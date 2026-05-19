@@ -1343,7 +1343,7 @@ export function issueRoutes(
     );
   }
 
-  async function assertDocumentMutationAllowedByRunContext(
+  async function assertDeliverableMutationAllowedByRunContext(
     req: Request,
     res: Response,
     issue: { id: string; companyId: string },
@@ -1365,7 +1365,7 @@ export function issueRoutes(
     if (!isStatusOnlyCheapRecoveryContext(run.contextSnapshot)) return true;
 
     res.status(403).json({
-      error: "Cheap status-only recovery runs cannot update issue documents or plans",
+      error: "Cheap status-only recovery runs cannot update issue documents, plans, or deliverable artifacts",
       details: {
         issueId: issue.id,
         runId,
@@ -2365,7 +2365,7 @@ export function issueRoutes(
     }
     assertCompanyAccess(req, issue.companyId);
     if (!(await assertAgentIssueMutationAllowed(req, res, issue))) return;
-    if (!(await assertDocumentMutationAllowedByRunContext(req, res, issue))) return;
+    if (!(await assertDeliverableMutationAllowedByRunContext(req, res, issue))) return;
     const keyParsed = issueDocumentKeySchema.safeParse(String(req.params.key ?? "").trim().toLowerCase());
     if (!keyParsed.success) {
       res.status(400).json({ error: "Invalid document key", details: keyParsed.error.issues });
@@ -2570,7 +2570,7 @@ export function issueRoutes(
       }
       assertCompanyAccess(req, issue.companyId);
       if (!(await assertAgentIssueMutationAllowed(req, res, issue))) return;
-      if (!(await assertDocumentMutationAllowedByRunContext(req, res, issue))) return;
+      if (!(await assertDeliverableMutationAllowedByRunContext(req, res, issue))) return;
       const keyParsed = issueDocumentKeySchema.safeParse(String(req.params.key ?? "").trim().toLowerCase());
       if (!keyParsed.success) {
         res.status(400).json({ error: "Invalid document key", details: keyParsed.error.issues });
@@ -2730,6 +2730,7 @@ export function issueRoutes(
     }
     assertCompanyAccess(req, issue.companyId);
     if (!(await assertAgentIssueMutationAllowed(req, res, issue))) return;
+    if (!(await assertDeliverableMutationAllowedByRunContext(req, res, issue))) return;
     const product = await workProductsSvc.createForIssue(issue.id, issue.companyId, {
       ...req.body,
       projectId: req.body.projectId ?? issue.projectId ?? null,
@@ -2773,6 +2774,7 @@ export function issueRoutes(
       return;
     }
     if (!(await assertAgentIssueMutationAllowed(req, res, issue))) return;
+    if (!(await assertDeliverableMutationAllowedByRunContext(req, res, issue))) return;
     const product = await workProductsSvc.update(id, req.body);
     if (!product) {
       res.status(404).json({ error: "Work product not found" });
@@ -2813,6 +2815,7 @@ export function issueRoutes(
       return;
     }
     if (!(await assertAgentIssueMutationAllowed(req, res, issue))) return;
+    if (!(await assertDeliverableMutationAllowedByRunContext(req, res, issue))) return;
     const removed = await workProductsSvc.remove(id);
     if (!removed) {
       res.status(404).json({ error: "Work product not found" });
@@ -5309,6 +5312,7 @@ export function issueRoutes(
       return;
     }
     if (!(await assertAgentIssueMutationAllowed(req, res, issue))) return;
+    if (!(await assertDeliverableMutationAllowedByRunContext(req, res, issue))) return;
 
     const company = await companiesSvc.getById(companyId);
     const attachmentMaxBytes = normalizeIssueAttachmentMaxBytes(company?.attachmentMaxBytes);
@@ -5428,6 +5432,7 @@ export function issueRoutes(
       return;
     }
     if (!(await assertAgentIssueMutationAllowed(req, res, issue))) return;
+    if (!(await assertDeliverableMutationAllowedByRunContext(req, res, issue))) return;
 
     try {
       await storage.deleteObject(attachment.companyId, attachment.objectKey);

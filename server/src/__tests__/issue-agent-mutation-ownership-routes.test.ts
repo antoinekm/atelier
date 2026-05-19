@@ -46,7 +46,9 @@ const mockDocumentService = vi.hoisted(() => ({
 }));
 
 const mockWorkProductService = vi.hoisted(() => ({
+  createForIssue: vi.fn(),
   getById: vi.fn(),
+  remove: vi.fn(),
   update: vi.fn(),
 }));
 
@@ -187,21 +189,37 @@ function makeAgent(id: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
-async function createApp(actor: Record<string, unknown>) {
+function createRunContextDb(contextSnapshot: Record<string, unknown> = {}) {
+  return {
+    transaction: async (callback: (tx: Record<string, never>) => Promise<unknown>) => callback({}),
+    select: vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          then: async (resolve: (rows: unknown[]) => unknown) =>
+            resolve([{
+              id: ownerRunId,
+              companyId,
+              agentId: ownerAgentId,
+              contextSnapshot,
+            }]),
+        })),
+      })),
+    })),
+  };
+}
+
+async function createApp(actor: Record<string, unknown>, db: unknown = createRunContextDb()) {
   const [{ errorHandler }, { issueRoutes }] = await Promise.all([
     vi.importActual<typeof import("../middleware/index.js")>("../middleware/index.js"),
     vi.importActual<typeof import("../routes/issues.js")>("../routes/issues.js"),
   ]);
-  const fakeDb = {
-    transaction: async (callback: (tx: Record<string, never>) => Promise<unknown>) => callback({}),
-  };
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
     (req as any).actor = actor;
     next();
   });
-  app.use("/api", issueRoutes(fakeDb as any, mockStorageService as any));
+  app.use("/api", issueRoutes(db as any, mockStorageService as any));
   app.use(errorHandler);
   return app;
 }
@@ -315,7 +333,9 @@ describe("agent issue mutation checkout ownership", () => {
     mockIssueService.update.mockReset();
     mockIssueService.findMentionedAgents.mockReset();
     mockDocumentService.upsertIssueDocument.mockReset();
+    mockWorkProductService.createForIssue.mockReset();
     mockWorkProductService.getById.mockReset();
+    mockWorkProductService.remove.mockReset();
     mockWorkProductService.update.mockReset();
     mockStorageService.putFile.mockReset();
     mockStorageService.getObject.mockReset();
@@ -378,6 +398,14 @@ describe("agent issue mutation checkout ownership", () => {
         latestRevisionNumber: 2,
       },
     });
+    mockWorkProductService.createForIssue.mockResolvedValue({
+      id: "product-2",
+      issueId,
+      companyId,
+      type: "artifact",
+      provider: "test",
+      title: "Artifact",
+    });
     mockWorkProductService.getById.mockResolvedValue({
       id: "product-1",
       issueId,
@@ -390,6 +418,12 @@ describe("agent issue mutation checkout ownership", () => {
       companyId,
       type: "artifact",
       title: "Updated",
+    });
+    mockWorkProductService.remove.mockResolvedValue({
+      id: "product-1",
+      issueId,
+      companyId,
+      type: "artifact",
     });
     mockStorageService.putFile.mockResolvedValue({
       provider: "local_disk",
@@ -458,6 +492,51 @@ describe("agent issue mutation checkout ownership", () => {
         lockedDocumentStrategy: "create_new_document",
       }),
     );
+  });
+
+  it.each([
+    [
+      "work product create",
+      (app: express.Express) =>
+        request(app).post(`/api/issues/${issueId}/work-products`).send({
+          type: "artifact",
+          provider: "test",
+          title: "Artifact",
+        }),
+    ],
+    ["work product update", (app: express.Express) => request(app).patch("/api/work-products/product-1").send({ title: "Blocked" })],
+    ["work product delete", (app: express.Express) => request(app).delete("/api/work-products/product-1")],
+    [
+      "attachment upload",
+      (app: express.Express) =>
+        request(app)
+          .post(`/api/companies/${companyId}/issues/${issueId}/attachments`)
+          .attach("file", Buffer.from("report"), { filename: "report.txt", contentType: "text/plain" }),
+    ],
+    ["attachment delete", (app: express.Express) => request(app).delete("/api/attachments/attachment-1")],
+  ])("blocks cheap status-only recovery runs from %s", async (_name, sendRequest) => {
+    const app = await createApp(
+      ownerActor(),
+      createRunContextDb({
+        modelProfile: "cheap",
+        recoveryIntent: "status_only",
+        allowDeliverableWork: false,
+        allowDocumentUpdates: false,
+        resumeRequiresNormalModel: true,
+      }),
+    );
+
+    const res = await sendRequest(app);
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(res.body.error).toContain("Cheap status-only recovery runs cannot update issue documents");
+    expect(mockIssueService.assertCheckoutOwner).toHaveBeenCalledWith(issueId, ownerAgentId, ownerRunId);
+    expect(mockWorkProductService.createForIssue).not.toHaveBeenCalled();
+    expect(mockWorkProductService.update).not.toHaveBeenCalled();
+    expect(mockWorkProductService.remove).not.toHaveBeenCalled();
+    expect(mockStorageService.putFile).not.toHaveBeenCalled();
+    expect(mockStorageService.deleteObject).not.toHaveBeenCalled();
+    expect(mockIssueService.removeAttachment).not.toHaveBeenCalled();
   });
 
   it("preserves committed issue updates, comments, documents, and work product writes when recovery revalidation fails", async () => {

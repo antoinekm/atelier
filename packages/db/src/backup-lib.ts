@@ -257,7 +257,7 @@ function formatPostgresArrayElement(value: unknown): string {
     : typeof value === "object"
       ? JSON.stringify(value)
       : String(value);
-  if (raw.length === 0 || /[{}\s,"\\]/.test(raw)) {
+  if (raw.length === 0 || /^null$/i.test(raw) || /[{}\s,"\\]/.test(raw)) {
     return `"${raw.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
   }
   return raw;

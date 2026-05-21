@@ -681,8 +681,11 @@ async function resolveInferredDefaultBaseRef(cwd: string) {
   const upstream = await resolveGitUpstreamRef(cwd);
   if (upstream) return upstream;
 
-  for (const candidate of ["origin/master", "origin/main", "master", "main"]) {
-    const resolved = await resolveVerifiedGitRef(cwd, candidate);
+  const candidates = ["origin/master", "origin/main", "master", "main"];
+  const resolvedCandidates = await Promise.all(
+    candidates.map((candidate) => resolveVerifiedGitRef(cwd, candidate)),
+  );
+  for (const resolved of resolvedCandidates) {
     if (resolved) return resolved;
   }
 

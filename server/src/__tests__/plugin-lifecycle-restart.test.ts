@@ -79,6 +79,10 @@ describe("pluginLifecycleManager.restartWorker", () => {
       {} as never,
       { loader: loader as PluginLoader, workerManager },
     );
+    const stopped = vi.fn();
+    const started = vi.fn();
+    lifecycle.on("plugin.worker_stopped", stopped);
+    lifecycle.on("plugin.worker_started", started);
 
     await lifecycle.restartWorker("plugin-1");
 
@@ -87,6 +91,8 @@ describe("pluginLifecycleManager.restartWorker", () => {
     // The bare worker handle should NOT be bounced — the loader handles
     // worker (re)start as part of activate.
     expect(handle.restart).not.toHaveBeenCalled();
+    expect(stopped).not.toHaveBeenCalled();
+    expect(started).not.toHaveBeenCalled();
   });
 
   it("falls back to bouncing the worker handle when the loader has no runtime services", async () => {
@@ -105,11 +111,19 @@ describe("pluginLifecycleManager.restartWorker", () => {
       {} as never,
       { loader: loader as PluginLoader, workerManager },
     );
+    const stopped = vi.fn();
+    const started = vi.fn();
+    lifecycle.on("plugin.worker_stopped", stopped);
+    lifecycle.on("plugin.worker_started", started);
 
     await lifecycle.restartWorker("plugin-1");
 
     expect(loader.unloadSingle).not.toHaveBeenCalled();
     expect(loader.loadSingle).not.toHaveBeenCalled();
     expect(handle.restart).toHaveBeenCalledTimes(1);
+    expect(stopped).toHaveBeenCalledTimes(1);
+    expect(stopped).toHaveBeenCalledWith({ pluginId: "plugin-1", pluginKey: "example.plugin" });
+    expect(started).toHaveBeenCalledTimes(1);
+    expect(started).toHaveBeenCalledWith({ pluginId: "plugin-1", pluginKey: "example.plugin" });
   });
 });

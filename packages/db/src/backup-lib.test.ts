@@ -352,7 +352,7 @@ describeEmbeddedPostgres("runDatabaseBackup", () => {
             '11111111-1111-4111-8111-111111111111',
             '22222222-2222-4222-8222-222222222222',
             'signal',
-            ARRAY['upstream_import:preview', 'scope with space', 'quoted "scope"'],
+            ARRAY['upstream_import:preview', 'scope with space', 'quoted "scope"', 'NULL', 'null'],
             jsonb_build_array('json warning', jsonb_build_object('code', 'quoted "value"'))
           );
         `);
@@ -386,7 +386,7 @@ describeEmbeddedPostgres("runDatabaseBackup", () => {
           {
             signal: "signal",
             title: "case",
-            scopes: ["upstream_import:preview", "scope with space", 'quoted "scope"'],
+            scopes: ["upstream_import:preview", "scope with space", 'quoted "scope"', "NULL", "null"],
             warnings: ["json warning", { code: 'quoted "value"' }],
           },
         ]);

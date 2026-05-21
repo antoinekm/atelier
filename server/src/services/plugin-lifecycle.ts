@@ -810,10 +810,9 @@ export function pluginLifecycleManager(
           "plugin lifecycle: restarting worker (runtime services unavailable; skipping migration re-apply)",
         );
         await handle.restart();
+        emitDomain("plugin.worker_stopped", { pluginId, pluginKey: plugin.pluginKey });
+        emitDomain("plugin.worker_started", { pluginId, pluginKey: plugin.pluginKey });
       }
-
-      emitDomain("plugin.worker_stopped", { pluginId, pluginKey: plugin.pluginKey });
-      emitDomain("plugin.worker_started", { pluginId, pluginKey: plugin.pluginKey });
 
       log.info(
         { pluginId, pluginKey: plugin.pluginKey },

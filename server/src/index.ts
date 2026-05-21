@@ -904,6 +904,9 @@ export async function startServer(): Promise<StartedServer> {
         await telemetryClient.flush();
       }
 
+      const appShutdown = (app as { locals?: { paperclipShutdown?: () => void } }).locals?.paperclipShutdown;
+      appShutdown?.();
+
       if (embeddedPostgres && embeddedPostgresStartedByThisProcess) {
         logger.info({ signal }, "Stopping embedded PostgreSQL");
         try {

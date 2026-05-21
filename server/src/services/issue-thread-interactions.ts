@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   documents,
@@ -159,7 +159,7 @@ function shouldReturnAcceptedConfirmationToCreatorAgent(args: {
 }
 
 function shouldSupersedeRequestConfirmationOnUserComment(interaction: RequestConfirmationInteraction) {
-  return interaction.payload.supersedeOnUserComment !== false;
+  return interaction.payload.supersedeOnUserComment === true;
 }
 
 function isCommentAtOrAfterInteraction(args: {
@@ -1059,45 +1059,64 @@ export function issueThreadInteractionService(db: Db) {
           .where(and(
             eq(issueComments.companyId, issue.companyId),
             eq(issueComments.issueId, issue.id),
+            isNotNull(issueComments.authorUserId),
           ))
           .orderBy(asc(issueComments.createdAt)),
       ]);
 
-      const userComments = comments.filter((comment) => comment.authorUserId);
-      if (rows.length === 0 || userComments.length === 0) return [];
+      if (rows.length === 0 || comments.length === 0) return [];
 
       const now = new Date();
       const expired: IssueThreadInteraction[] = [];
+      const supersededByComment = new Map<
+        string,
+        {
+          comment: (typeof comments)[number];
+          rowIds: string[];
+        }
+      >();
       for (const row of rows) {
         const interaction = hydrateInteraction(row) as RequestConfirmationInteraction;
         if (!shouldSupersedeRequestConfirmationOnUserComment(interaction)) continue;
 
-        const supersedingComment = userComments.find((comment) => isCommentAtOrAfterInteraction({
+        const supersedingComment = comments.find((comment) => isCommentAtOrAfterInteraction({
           commentCreatedAt: comment.createdAt,
           interactionCreatedAt: row.createdAt,
         }));
         if (!supersedingComment) continue;
 
-        const [updated] = await db
+        const group = supersededByComment.get(supersedingComment.id);
+        if (group) {
+          group.rowIds.push(row.id);
+        } else {
+          supersededByComment.set(supersedingComment.id, {
+            comment: supersedingComment,
+            rowIds: [row.id],
+          });
+        }
+      }
+
+      for (const { comment, rowIds } of supersededByComment.values()) {
+        const updatedRows = await db
           .update(issueThreadInteractions)
           .set({
             status: "expired",
             result: {
               version: 1,
               outcome: "superseded_by_comment",
-              commentId: supersedingComment.id,
+              commentId: comment.id,
             },
             resolvedByAgentId: null,
-            resolvedByUserId: supersedingComment.authorUserId,
+            resolvedByUserId: comment.authorUserId,
             resolvedAt: now,
             updatedAt: now,
           })
           .where(and(
-            eq(issueThreadInteractions.id, row.id),
+            inArray(issueThreadInteractions.id, rowIds),
             eq(issueThreadInteractions.status, "pending"),
           ))
           .returning();
-        if (updated) expired.push(hydrateInteraction(updated));
+        expired.push(...updatedRows.map(hydrateInteraction));
       }
 
       if (expired.length > 0) {

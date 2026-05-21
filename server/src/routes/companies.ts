@@ -26,6 +26,7 @@ import {
 } from "../services/index.js";
 import type { StorageService } from "../storage/types.js";
 import { assertBoard, assertCompanyAccess, assertInstanceAdmin, getActorInfo } from "./authz.js";
+import { COMPANY_IMPORT_ROUTE_PATH } from "./company-import-paths.js";
 
 export function companyRoutes(db: Db, storage?: StorageService) {
   const router = Router();
@@ -188,7 +189,7 @@ export function companyRoutes(db: Db, storage?: StorageService) {
     res.json(importJobResponse(job));
   });
 
-  router.post("/import", async (req, res) => {
+  router.post(COMPANY_IMPORT_ROUTE_PATH, async (req, res) => {
     assertBoard(req);
     const rawImportBody: unknown = req.body;
     const actor = getActorInfo(req);

@@ -12,7 +12,6 @@ import {
   workspaceRuntimeServices,
 } from "@paperclipai/db";
 import {
-  PROJECT_COLORS,
   deriveProjectUrlKey,
   hasNonAsciiContent,
   isUuidLike,
@@ -549,13 +548,8 @@ export function projectService(db: Db) {
     const { goalIds: inputGoalIds, ...projectData } = data;
     const ids = resolveGoalIds({ goalIds: inputGoalIds, goalId: projectData.goalId });
 
-    // Auto-assign a color from the palette if none provided
-    if (!projectData.color) {
-      const existing = await db.select({ color: projects.color }).from(projects).where(eq(projects.companyId, companyId));
-      const usedColors = new Set(existing.map((r) => r.color).filter(Boolean));
-      const nextColor = PROJECT_COLORS.find((c) => !usedColors.has(c)) ?? PROJECT_COLORS[existing.length % PROJECT_COLORS.length];
-      projectData.color = nextColor;
-    }
+    // Note: color is intentionally NOT auto-assigned. New projects default to
+    // `color = null` (neutral gray) unless an explicit color is supplied. See PAP-68.
 
     const existingProjects = await db
       .select({ id: projects.id, name: projects.name })

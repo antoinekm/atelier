@@ -68,4 +68,28 @@ describeEmbeddedPostgres("project icon persistence", () => {
     const fetched = await projects.getById(created.id);
     expect(fetched?.icon).toBeNull();
   });
+
+  // PAP-71: new projects must NOT auto-assign a color — they stay neutral gray
+  // (color = null) unless an explicit color is supplied on create.
+  it("defaults color to null when none is provided (no auto-assign)", async () => {
+    companyId = await seedCompany();
+    const projects = projectService(db);
+
+    const created = await projects.create(companyId, { name: "Gray" });
+    expect(created.color).toBeNull();
+
+    const fetched = await projects.getById(created.id);
+    expect(fetched?.color).toBeNull();
+  });
+
+  it("still persists an explicit color when one is supplied", async () => {
+    companyId = await seedCompany();
+    const projects = projectService(db);
+
+    const created = await projects.create(companyId, { name: "Blue", color: "#3b82f6" });
+    expect(created.color).toBe("#3b82f6");
+
+    const fetched = await projects.getById(created.id);
+    expect(fetched?.color).toBe("#3b82f6");
+  });
 });

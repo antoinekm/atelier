@@ -7,6 +7,7 @@ import { useDialogActions } from "../context/DialogContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
 import { EntityRow } from "../components/EntityRow";
+import { ProjectTile } from "../components/ProjectTile";
 import { StatusBadge } from "../components/StatusBadge";
 import { MembershipAction } from "../components/MembershipAction";
 import { EmptyState } from "../components/EmptyState";
@@ -206,6 +207,7 @@ export function Projects() {
                     return (
                       <EntityRow
                         key={project.id}
+                        leading={<ProjectTile color={project.color ?? null} size="sm" />}
                         title={project.name}
                         subtitle={project.description ?? undefined}
                         reserveSubtitleSpace

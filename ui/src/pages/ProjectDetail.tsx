@@ -18,6 +18,7 @@ import { queryKeys } from "../lib/queryKeys";
 import { ProjectProperties, type ProjectConfigFieldKey, type ProjectFieldSaveState } from "../components/ProjectProperties";
 import { InlineEditor } from "../components/InlineEditor";
 import { StatusBadge } from "../components/StatusBadge";
+import { ProjectTile } from "../components/ProjectTile";
 import { BudgetPolicyCard } from "../components/BudgetPolicyCard";
 import { IssuesList } from "../components/IssuesList";
 import { PageSkeleton } from "../components/PageSkeleton";
@@ -106,11 +107,11 @@ function OverviewContent({
 /* ── Color picker popover ── */
 
 function ColorPicker({
-  currentColor,
+  color,
   onSelect,
 }: {
-  currentColor: string;
-  onSelect: (color: string) => void;
+  color: string | null;
+  onSelect: (color: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -129,28 +130,49 @@ function ColorPicker({
   return (
     <div className="relative" ref={ref}>
       <button
+        type="button"
         onClick={() => setOpen(!open)}
-        className="shrink-0 h-5 w-5 rounded-md cursor-pointer hover:ring-2 hover:ring-foreground/20 transition-[box-shadow]"
-        style={{ backgroundColor: currentColor }}
+        className="shrink-0 rounded-lg cursor-pointer hover:ring-2 hover:ring-foreground/20 transition-[box-shadow]"
         aria-label="Change project color"
-      />
+      >
+        <ProjectTile color={color} size="md" />
+      </button>
       {open && (
-        <div className="absolute top-full left-0 mt-2 p-2 bg-popover border border-border rounded-lg shadow-lg z-50 w-max">
+        <div className="absolute top-full left-0 mt-2 p-3 bg-popover border border-border rounded-lg shadow-lg z-50 w-max">
+          <p className="text-xs font-medium text-muted-foreground mb-2">Project color</p>
           <div className="grid grid-cols-5 gap-1.5">
-            {PROJECT_COLORS.map((color) => (
+            {/* Neutral / reset-to-gray option (folder icon is fixed this phase) */}
+            <button
+              type="button"
+              onClick={() => {
+                onSelect(null);
+                setOpen(false);
+              }}
+              className={`h-6 w-6 cursor-pointer transition-[transform,box-shadow] duration-150 hover:scale-110 ${
+                color === null
+                  ? "ring-2 ring-foreground ring-offset-1 ring-offset-background rounded-md"
+                  : ""
+              }`}
+              aria-label="Reset to neutral gray"
+              title="Neutral (default)"
+            >
+              <ProjectTile color={null} size="sm" />
+            </button>
+            {PROJECT_COLORS.map((swatch) => (
               <button
-                key={color}
+                key={swatch}
+                type="button"
                 onClick={() => {
-                  onSelect(color);
+                  onSelect(swatch);
                   setOpen(false);
                 }}
                 className={`h-6 w-6 rounded-md cursor-pointer transition-[transform,box-shadow] duration-150 hover:scale-110 ${
-                  color === currentColor
+                  swatch === color
                     ? "ring-2 ring-foreground ring-offset-1 ring-offset-background"
                     : "hover:ring-2 hover:ring-foreground/30"
                 }`}
-                style={{ backgroundColor: color }}
-                aria-label={`Select color ${color}`}
+                style={{ backgroundColor: swatch }}
+                aria-label={`Select color ${swatch}`}
               />
             ))}
           </div>
@@ -699,7 +721,7 @@ export function ProjectDetail() {
       <div className="flex items-start gap-3">
         <div className="h-7 flex items-center">
           <ColorPicker
-            currentColor={project.color ?? "#6366f1"}
+            color={project.color ?? null}
             onSelect={(color) => updateProject.mutate({ color })}
           />
         </div>

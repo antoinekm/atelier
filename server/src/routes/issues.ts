@@ -124,7 +124,6 @@ import {
 import { parseIssueExecutionWorkspaceSettings } from "../services/execution-workspace-policy.js";
 import type { PluginWorkerManager } from "../services/plugin-worker-manager.js";
 import {
-  buildLowTrustSourceTrust,
   buildPromotedSourceTrust,
   isLowTrustQuarantined,
   redactQuarantinedBodyForHigherTrust,
@@ -4092,21 +4091,21 @@ export function issueRoutes(
       actor.actorType,
     );
     await assertCanManageIssueMonitor(access, req, companyId, req.body.assigneeAgentId ?? null, Boolean(executionPolicy?.monitor));
+    const issueId = randomUUID();
+    const sourceTrust = await sourceTrustForActorWrite({
+      id: issueId,
+      companyId,
+      projectId: req.body.projectId ?? null,
+      executionPolicy,
+    }, actor);
     const issue = await svc.create(companyId, {
       ...req.body,
+      id: issueId,
       executionPolicy,
+      ...(sourceTrust ? { sourceTrust } : {}),
       createdByAgentId: actor.agentId,
       createdByUserId: actor.actorType === "user" ? actor.actorId : null,
     });
-    const createdSourceTrust = await sourceTrustForActorWrite(issue, actor);
-    if (createdSourceTrust) {
-      issue.sourceTrust = buildLowTrustSourceTrust({
-        issueId: issue.id,
-        runId: actor.runId,
-        agentId: actor.agentId,
-      });
-      await svc.update(issue.id, { sourceTrust: issue.sourceTrust });
-    }
     await issueReferencesSvc.syncIssue(issue.id);
     const referenceSummary = await issueReferencesSvc.listIssueReferenceSummary(issue.id);
     const referenceDiff = issueReferencesSvc.diffIssueReferenceSummary(
@@ -4204,23 +4203,23 @@ export function issueRoutes(
       actor.actorType,
     );
     await assertCanManageIssueMonitor(access, req, parent.companyId, req.body.assigneeAgentId ?? null, Boolean(executionPolicy?.monitor));
+    const issueId = randomUUID();
+    const sourceTrust = await sourceTrustForActorWrite({
+      id: issueId,
+      companyId: parent.companyId,
+      projectId: req.body.projectId ?? parent.projectId ?? null,
+      executionPolicy,
+    }, actor);
     const { issue, parentBlockerAdded } = await svc.createChild(parent.id, {
       ...req.body,
+      id: issueId,
       executionPolicy,
+      ...(sourceTrust ? { sourceTrust } : {}),
       createdByAgentId: actor.agentId,
       createdByUserId: actor.actorType === "user" ? actor.actorId : null,
       actorAgentId: actor.agentId,
       actorUserId: actor.actorType === "user" ? actor.actorId : null,
     });
-    const childSourceTrust = await sourceTrustForActorWrite(parent, actor);
-    if (childSourceTrust) {
-      issue.sourceTrust = buildLowTrustSourceTrust({
-        issueId: issue.id,
-        runId: actor.runId,
-        agentId: actor.agentId,
-      });
-      await svc.update(issue.id, { sourceTrust: issue.sourceTrust });
-    }
 
     await logActivity(db, {
       companyId: parent.companyId,
@@ -4316,21 +4315,31 @@ export function issueRoutes(
     }
 
     const actor = getActorInfo(req);
-    const normalizedChildren = req.body.children.map((child: typeof req.body.children[number]) => {
+    const normalizedChildren = [];
+    for (const child of req.body.children as Array<typeof req.body.children[number]>) {
       const executionPolicy = applyActorMonitorScheduledBy(
         normalizeIssueExecutionPolicy(child.executionPolicy),
         actor.actorType,
       );
-      assertCanManageIssueMonitor(access, req, sourceIssue.companyId, child.assigneeAgentId ?? null, Boolean(executionPolicy?.monitor));
-      return {
-        ...child,
+      await assertCanManageIssueMonitor(access, req, sourceIssue.companyId, child.assigneeAgentId ?? null, Boolean(executionPolicy?.monitor));
+      const childIssueId = randomUUID();
+      const sourceTrust = await sourceTrustForActorWrite({
+        id: childIssueId,
+        companyId: sourceIssue.companyId,
+        projectId: child.projectId ?? sourceIssue.projectId ?? null,
         executionPolicy,
+      }, actor);
+      normalizedChildren.push({
+        ...child,
+        id: childIssueId,
+        executionPolicy,
+        ...(sourceTrust ? { sourceTrust } : {}),
         createdByAgentId: actor.agentId,
         createdByUserId: actor.actorType === "user" ? actor.actorId : null,
         actorAgentId: actor.agentId,
         actorUserId: actor.actorType === "user" ? actor.actorId : null,
-      };
-    });
+      });
+    }
 
     const result = await svc.decomposeAcceptedPlan(sourceIssue.id, {
       acceptedPlanRevisionId: req.body.acceptedPlanRevisionId,

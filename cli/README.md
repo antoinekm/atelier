@@ -26,7 +26,7 @@
 
 ## What is Paperclip?
 
-# Open-source orchestration for zero-human companies
+# Paperclip is the app people use to manage AI agents for work
 
 **If OpenClaw is an _employee_, Paperclip is the _company_**
 

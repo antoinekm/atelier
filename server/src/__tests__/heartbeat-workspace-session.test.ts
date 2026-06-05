@@ -111,6 +111,20 @@ function standardTrustResolution(): TrustPresetResolution {
   };
 }
 
+function buildIssueAncestryDb(rows: Array<{ id: string; companyId: string; parentId: string | null }>) {
+  const queue = [...rows];
+  return {
+    select: () => ({
+      from: () => ({
+        where: () => {
+          const row = queue.shift();
+          return Promise.resolve(row ? [row] : []);
+        },
+      }),
+    }),
+  };
+}
+
 describe("stripHostWorkspaceProvisionForLowTrustSandbox", () => {
   it("removes only the host-side provision command for sandbox-backed low-trust runs", () => {
     const config = {
@@ -208,6 +222,24 @@ describe("preflightLowTrustWorkspaceIsolation", () => {
         companyId: "company-1",
         id: "issue-1",
         projectId: "project-1",
+      },
+      resolveSelectedEnvironmentDriver: async () => "sandbox",
+    })).resolves.toBe("sandbox");
+  });
+
+  it("allows child issues inside a rootIssueId low-trust boundary during workspace preflight", async () => {
+    await expect(preflightLowTrustWorkspaceIsolation({
+      db: buildIssueAncestryDb([
+        { id: "issue-child", companyId: "company-1", parentId: "issue-1" },
+        { id: "issue-1", companyId: "company-1", parentId: null },
+      ]) as any,
+      trustPreset: lowTrustResolution(),
+      isolatedWorkspacesEnabled: true,
+      effectiveExecutionWorkspaceMode: "isolated_workspace",
+      issue: {
+        companyId: "company-1",
+        id: "issue-child",
+        projectId: null,
       },
       resolveSelectedEnvironmentDriver: async () => "sandbox",
     })).resolves.toBe("sandbox");

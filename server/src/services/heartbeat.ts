@@ -775,6 +775,7 @@ export function stripHostWorkspaceProvisionForLowTrustSandbox(input: {
 }
 
 export async function preflightLowTrustWorkspaceIsolation(input: {
+  db?: Db;
   trustPreset: TrustPresetResolution;
   isolatedWorkspacesEnabled: boolean;
   effectiveExecutionWorkspaceMode: string | null | undefined;
@@ -790,7 +791,8 @@ export async function preflightLowTrustWorkspaceIsolation(input: {
       ? await input.resolveSelectedEnvironmentDriver()
       : null;
 
-  assertLowTrustWorkspaceIsolation({
+  await assertLowTrustWorkspaceIsolation({
+    db: input.db,
     resolution: input.trustPreset,
     isolatedWorkspacesEnabled: input.isolatedWorkspacesEnabled,
     effectiveExecutionWorkspaceMode: input.effectiveExecutionWorkspaceMode,
@@ -802,6 +804,7 @@ export async function preflightLowTrustWorkspaceIsolation(input: {
 }
 
 export async function resolveWorkspaceAfterLowTrustPreflight<TWorkspace>(input: {
+  db?: Db;
   trustPreset: TrustPresetResolution;
   isolatedWorkspacesEnabled: boolean;
   effectiveExecutionWorkspaceMode: string | null | undefined;
@@ -810,6 +813,7 @@ export async function resolveWorkspaceAfterLowTrustPreflight<TWorkspace>(input: 
   resolveWorkspace: () => Promise<TWorkspace>;
 }): Promise<{ selectedEnvironmentDriver: string | null; workspace: TWorkspace }> {
   const selectedEnvironmentDriver = await preflightLowTrustWorkspaceIsolation({
+    db: input.db,
     trustPreset: input.trustPreset,
     isolatedWorkspacesEnabled: input.isolatedWorkspacesEnabled,
     effectiveExecutionWorkspaceMode: input.effectiveExecutionWorkspaceMode,
@@ -7666,6 +7670,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       selectedEnvironmentDriver: lowTrustPreflightEnvironmentDriver,
       workspace: resolvedWorkspace,
     } = await resolveWorkspaceAfterLowTrustPreflight({
+      db,
       trustPreset,
       isolatedWorkspacesEnabled,
       effectiveExecutionWorkspaceMode,

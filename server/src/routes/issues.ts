@@ -1039,6 +1039,7 @@ export function issueRoutes(
     issue: { id: string; companyId: string; projectId?: string | null; executionPolicy?: unknown },
     actor: ReturnType<typeof getActorInfo>,
   ) {
+    // Board users are trusted reviewers and intentionally receive raw quarantined output for promotion decisions.
     if (actor.actorType !== "agent") return false;
     const sourceTrust = await sourceTrustForActorWrite(issue, actor);
     return !sourceTrust;

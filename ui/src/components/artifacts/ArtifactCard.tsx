@@ -151,8 +151,11 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
       <ArtifactPreview artifact={artifact} />
 
       <div className="flex flex-1 flex-col gap-1 p-3">
-        <div className="flex items-start justify-between gap-2">
-          <h3 className="truncate text-sm font-medium text-foreground/85" title={artifact.title}>
+        <div className="flex h-7 items-start justify-between gap-2">
+          <h3
+            className="min-w-0 flex-1 truncate text-sm font-medium leading-7 text-foreground/85"
+            title={artifact.title}
+          >
             {artifact.title}
           </h3>
           <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">

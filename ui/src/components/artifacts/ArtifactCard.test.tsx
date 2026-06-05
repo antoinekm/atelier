@@ -52,6 +52,8 @@ describe("ArtifactCard", () => {
     expect(markup).toContain('src="/files/art-1.png"');
     expect(markup).toContain("object-cover");
     expect(markup).toContain("Hero shot");
+    expect(markup).toContain("flex h-7 items-start justify-between gap-2");
+    expect(markup).toContain("leading-7");
     expect(markup).toContain("Last edited Jun 1, 2026");
     expect(markup).not.toContain("Landing visuals");
     expect(markup).not.toContain("Edited ");
@@ -139,6 +141,24 @@ describe("ArtifactCard", () => {
         })}
       />,
     );
+    expect(markup).not.toContain('aria-label="Download file"');
+    expect(markup).not.toContain('aria-label="Open file in new tab"');
+  });
+
+  it("reserves the same title row height when file actions are absent", () => {
+    const markup = renderToStaticMarkup(
+      <ArtifactCard
+        artifact={makeArtifact({
+          openPath: null,
+          downloadPath: null,
+          createdByAgent: null,
+        })}
+      />,
+    );
+
+    expect(markup).toContain("flex h-7 items-start justify-between gap-2");
+    expect(markup).toContain("leading-7");
+    expect(markup).toContain("Last edited Jun 1, 2026");
     expect(markup).not.toContain('aria-label="Download file"');
     expect(markup).not.toContain('aria-label="Open file in new tab"');
   });

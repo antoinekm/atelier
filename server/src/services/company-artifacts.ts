@@ -322,6 +322,7 @@ export function companyArtifactsService(db: Db, storage?: StorageService) {
         const updatedAgent = alias(agents, "document_updated_agent");
         const documentArtifactId = sql<string>`concat('document:', ${documents.id})`;
         const documentConditions: SQL[] = [
+          eq(issueDocuments.companyId, companyId),
           eq(documents.companyId, companyId),
           or(isNotNull(documents.createdByAgentId), isNotNull(documents.updatedByAgentId))!,
           notInArray(issueDocuments.key, [...SYSTEM_ISSUE_DOCUMENT_KEYS]),
@@ -355,11 +356,41 @@ export function companyArtifactsService(db: Db, storage?: StorageService) {
             updatedAt: documents.updatedAt,
           })
           .from(issueDocuments)
-          .innerJoin(documents, eq(issueDocuments.documentId, documents.id))
-          .innerJoin(issues, eq(issueDocuments.issueId, issues.id))
-          .leftJoin(projects, eq(issues.projectId, projects.id))
-          .leftJoin(createdAgent, eq(documents.createdByAgentId, createdAgent.id))
-          .leftJoin(updatedAgent, eq(documents.updatedByAgentId, updatedAgent.id))
+          .innerJoin(
+            documents,
+            and(
+              eq(issueDocuments.documentId, documents.id),
+              eq(documents.companyId, issueDocuments.companyId),
+            ),
+          )
+          .innerJoin(
+            issues,
+            and(
+              eq(issueDocuments.issueId, issues.id),
+              eq(issues.companyId, issueDocuments.companyId),
+            ),
+          )
+          .leftJoin(
+            projects,
+            and(
+              eq(issues.projectId, projects.id),
+              eq(projects.companyId, issues.companyId),
+            ),
+          )
+          .leftJoin(
+            createdAgent,
+            and(
+              eq(documents.createdByAgentId, createdAgent.id),
+              eq(createdAgent.companyId, documents.companyId),
+            ),
+          )
+          .leftJoin(
+            updatedAgent,
+            and(
+              eq(documents.updatedByAgentId, updatedAgent.id),
+              eq(updatedAgent.companyId, documents.companyId),
+            ),
+          )
           .where(and(...documentConditions))
           .orderBy(desc(documents.updatedAt), desc(documentArtifactId));
         const documentRows = groupBy ? await documentRowsQuery : await documentRowsQuery.limit(fetchLimit);
@@ -439,8 +470,20 @@ export function companyArtifactsService(db: Db, storage?: StorageService) {
             updatedAt: issueWorkProducts.updatedAt,
           })
           .from(issueWorkProducts)
-          .innerJoin(issues, eq(issueWorkProducts.issueId, issues.id))
-          .leftJoin(projects, eq(issues.projectId, projects.id))
+          .innerJoin(
+            issues,
+            and(
+              eq(issueWorkProducts.issueId, issues.id),
+              eq(issues.companyId, issueWorkProducts.companyId),
+            ),
+          )
+          .leftJoin(
+            projects,
+            and(
+              eq(issues.projectId, projects.id),
+              eq(projects.companyId, issueWorkProducts.companyId),
+            ),
+          )
           .leftJoin(
             heartbeatRuns,
             and(
@@ -464,7 +507,13 @@ export function companyArtifactsService(db: Db, storage?: StorageService) {
             attachmentId: sql<string | null>`${issueWorkProducts.metadata}->>'attachmentId'`,
           })
           .from(issueWorkProducts)
-          .innerJoin(issues, eq(issueWorkProducts.issueId, issues.id))
+          .innerJoin(
+            issues,
+            and(
+              eq(issueWorkProducts.issueId, issues.id),
+              eq(issues.companyId, issueWorkProducts.companyId),
+            ),
+          )
           .where(and(...workProductBaseConditions, sql`${issueWorkProducts.metadata}->>'attachmentId' IS NOT NULL`));
 
         for (const row of workProductAttachmentRows) {
@@ -542,10 +591,34 @@ export function companyArtifactsService(db: Db, storage?: StorageService) {
             updatedAt: issueAttachments.updatedAt,
           })
           .from(issueAttachments)
-          .innerJoin(assets, eq(issueAttachments.assetId, assets.id))
-          .innerJoin(issues, eq(issueAttachments.issueId, issues.id))
-          .leftJoin(projects, eq(issues.projectId, projects.id))
-          .leftJoin(attachmentAgent, eq(assets.createdByAgentId, attachmentAgent.id))
+          .innerJoin(
+            assets,
+            and(
+              eq(issueAttachments.assetId, assets.id),
+              eq(assets.companyId, issueAttachments.companyId),
+            ),
+          )
+          .innerJoin(
+            issues,
+            and(
+              eq(issueAttachments.issueId, issues.id),
+              eq(issues.companyId, issueAttachments.companyId),
+            ),
+          )
+          .leftJoin(
+            projects,
+            and(
+              eq(issues.projectId, projects.id),
+              eq(projects.companyId, issues.companyId),
+            ),
+          )
+          .leftJoin(
+            attachmentAgent,
+            and(
+              eq(assets.createdByAgentId, attachmentAgent.id),
+              eq(attachmentAgent.companyId, assets.companyId),
+            ),
+          )
           .where(and(...attachmentConditions))
           .orderBy(desc(issueAttachments.updatedAt), desc(attachmentArtifactId));
         const attachmentRows = groupBy ? await attachmentRowsQuery : await attachmentRowsQuery.limit(fetchLimit);

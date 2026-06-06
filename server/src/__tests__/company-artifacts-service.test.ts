@@ -330,7 +330,7 @@ describeEmbeddedPostgres("companyArtifactsService", () => {
       updatedAt: new Date("2026-01-02T12:00:00.000Z"),
     });
 
-    return { companyId, projectId, issueId, secondIssueId, otherIssueId, otherRunId };
+    return { companyId, otherCompanyId, projectId, issueId, secondIssueId, otherIssueId, otherRunId };
   }
 
   it("projects agent-created documents, direct attachments, and work products while excluding noisy sources", async () => {
@@ -495,6 +495,96 @@ describeEmbeddedPostgres("companyArtifactsService", () => {
     expect(forged).toBeTruthy();
     expect(forged?.createdByAgent).toBeNull();
     expect(result.artifacts.some((artifact) => artifact.createdByAgent?.name === "Other")).toBe(false);
+  });
+
+  it("does not leak foreign issue or project metadata through malformed artifact link rows", async () => {
+    const { companyId, otherCompanyId, otherIssueId } = await seedArtifacts();
+    const foreignProjectId = "1b1b1b1b-1b1b-4b1b-8b1b-1b1b1b1b1b1b";
+    const malformedAttachmentId = "1c1c1c1c-1c1c-4c1c-8c1c-1c1c1c1c1c1c";
+
+    await db.insert(projects).values({
+      id: foreignProjectId,
+      companyId: otherCompanyId,
+      name: "Foreign Project",
+      status: "in_progress",
+    });
+    await db.update(issues).set({ projectId: foreignProjectId }).where(eq(issues.id, otherIssueId));
+    await db.insert(documents).values({
+      id: "1d1d1d1d-1d1d-4d1d-8d1d-1d1d1d1d1d1d",
+      companyId,
+      title: "Forged Link Document",
+      latestBody: "This row is company-owned but points at a foreign issue.",
+      createdByAgentId: "33333333-3333-4333-8333-333333333333",
+      updatedAt: new Date("2026-01-30T00:00:00.000Z"),
+    });
+    await db.insert(issueDocuments).values({
+      companyId,
+      issueId: otherIssueId,
+      documentId: "1d1d1d1d-1d1d-4d1d-8d1d-1d1d1d1d1d1d",
+      key: "forged-link-document",
+    });
+    await db.insert(assets).values({
+      id: "1e1e1e1e-1e1e-4e1e-8e1e-1e1e1e1e1e1e",
+      companyId,
+      provider: "local_disk",
+      objectKey: "forged-link.txt",
+      contentType: "text/plain",
+      byteSize: 42,
+      sha256: "sha256-forged-link",
+      originalFilename: "forged-link.txt",
+      createdByAgentId: "33333333-3333-4333-8333-333333333333",
+    });
+    await db.insert(issueAttachments).values({
+      id: malformedAttachmentId,
+      companyId,
+      issueId: otherIssueId,
+      assetId: "1e1e1e1e-1e1e-4e1e-8e1e-1e1e1e1e1e1e",
+      updatedAt: new Date("2026-01-29T00:00:00.000Z"),
+    });
+    await db.insert(issueWorkProducts).values({
+      id: "1f1f1f1f-1f1f-4f1f-8f1f-1f1f1f1f1f1f",
+      companyId,
+      issueId: otherIssueId,
+      type: "artifact",
+      provider: "paperclip",
+      title: "Forged Link Work Product",
+      status: "ready_for_review",
+      summary: "This row is company-owned but points at a foreign issue.",
+      metadata: { contentType: "text/plain" },
+      createdByRunId: "99999999-9999-4999-8999-999999999999",
+      updatedAt: new Date("2026-01-28T00:00:00.000Z"),
+    });
+
+    const flat = await companyArtifactsService(db, createStorageService()).list(companyId, { limit: 20 });
+    expect(flat.artifacts.map((artifact) => artifact.title)).not.toEqual(expect.arrayContaining([
+      "Forged Link Document",
+      "forged-link.txt",
+      "Forged Link Work Product",
+    ]));
+    expect(flat.artifacts.some((artifact) => artifact.issue.identifier === "OTH-1")).toBe(false);
+    expect(flat.artifacts.some((artifact) => artifact.issue.title === "Other output")).toBe(false);
+    expect(flat.artifacts.some((artifact) => artifact.project?.name === "Foreign Project")).toBe(false);
+
+    const grouped = await companyArtifactsService(db, createStorageService()).list(companyId, {
+      groupBy: "task",
+      limit: 20,
+    });
+    expect(grouped.groups?.some((group) => group.issue.identifier === "OTH-1")).toBe(false);
+    expect(grouped.groups?.some((group) => group.issue.title === "Other output")).toBe(false);
+    expect(grouped.groups?.some((group) =>
+      group.previewArtifacts.some((artifact) => artifact.project?.name === "Foreign Project")
+    )).toBe(false);
+
+    const selectedForeignGroup = await companyArtifactsService(db, createStorageService()).list(companyId, {
+      groupBy: "task",
+      groupIssueId: otherIssueId,
+      limit: 20,
+    });
+    expect(selectedForeignGroup).toEqual({
+      artifacts: [],
+      selectedGroup: null,
+      nextCursor: null,
+    });
   });
 
   it("groups artifacts by task after applying media, project, and search filters", async () => {

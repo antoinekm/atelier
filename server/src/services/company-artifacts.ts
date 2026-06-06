@@ -286,8 +286,7 @@ function buildArtifactGroups(input: {
     if (group.previewArtifacts.length < GROUP_PREVIEW_ARTIFACT_LIMIT) {
       group.previewArtifacts.push(artifact);
     }
-    const dateDiff = Date.parse(artifact.updatedAt) - Date.parse(group.updatedAt);
-    if (dateDiff > 0 || (dateDiff === 0 && artifact.id > group.id)) {
+    if (Date.parse(artifact.updatedAt) > Date.parse(group.updatedAt)) {
       group.updatedAt = artifact.updatedAt;
     }
   }

@@ -1,11 +1,17 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import { Check, ChevronLeft, Layers, Package, Search, X } from "lucide-react";
+import { ArrowLeft, Check, Layers, Package, Search, X } from "lucide-react";
 import { ArtifactCard } from "@/components/artifacts/ArtifactCard";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn, formatDate } from "@/lib/utils";
 import type { CompanyArtifact } from "@/api/artifacts";
 
@@ -153,6 +159,10 @@ const GROUP_OPTIONS: { value: GroupBy; label: string }[] = [
   { value: "parent_task", label: "Parent task" },
 ];
 
+function groupByLabel(value: GroupBy) {
+  return GROUP_OPTIONS.find((option) => option.value === value)?.label ?? "None";
+}
+
 /**
  * Toolbar replica matching the existing Artifacts page (search + kind filters)
  * with the group-by icon control placed before the filter chips.
@@ -196,41 +206,34 @@ function ArtifactsToolbar({
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
-        <Popover>
-          <PopoverTrigger asChild>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
             <Button
               type="button"
               variant="outline"
               size="icon"
               className={cn("h-8 w-8 shrink-0", groupBy !== "none" && "bg-accent")}
               title="Group artifacts"
-              aria-label="Group artifacts"
+              aria-label={`Group artifacts (currently ${groupByLabel(groupBy)})`}
             >
-              <Layers className="h-3.5 w-3.5" />
+              <Layers className="h-3.5 w-3.5" aria-hidden="true" />
             </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-44 p-0">
-            <div className="border-b border-border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Group by
-            </div>
-            <div className="space-y-0.5 p-2">
-              {GROUP_OPTIONS.map(({ value, label }) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={cn(
-                    "flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-sm",
-                    groupBy === value ? "bg-accent/50 text-foreground" : "text-muted-foreground hover:bg-accent/50",
-                  )}
-                  onClick={() => onGroupByChange(value)}
-                >
-                  <span>{label}</span>
-                  {groupBy === value ? <Check className="h-3.5 w-3.5" /> : null}
-                </button>
-              ))}
-            </div>
-          </PopoverContent>
-        </Popover>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuLabel>Group by</DropdownMenuLabel>
+            {GROUP_OPTIONS.map(({ value, label }) => (
+              <DropdownMenuItem
+                key={value}
+                aria-selected={groupBy === value}
+                onSelect={() => onGroupByChange(value)}
+                className="justify-between"
+              >
+                {label}
+                {groupBy === value ? <Check className="h-3.5 w-3.5" /> : null}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Filter artifacts by type">
           {KIND_FILTERS.map((filter) => (
@@ -603,7 +606,7 @@ export const SelectedStack: Story = {
               href="/PAP/artifacts?groupBy=task"
               className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
             >
-              <ChevronLeft className="h-3.5 w-3.5" />
+              <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
               All stacks
             </a>
             <span className="text-muted-foreground/40" aria-hidden="true">

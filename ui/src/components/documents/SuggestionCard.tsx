@@ -150,7 +150,7 @@ export function SuggestionCard({
         data-status={suggestion.status}
         className={cn(
           "rounded-md border border-border bg-card p-2.5 text-card-foreground shadow-sm",
-          suggestion.status === "rejected" && "opacity-70",
+          (suggestion.status === "rejected" || suggestion.status === "resolved") && "opacity-70",
           className,
         )}
       >
@@ -184,6 +184,15 @@ export function SuggestionCard({
             {suggestion.status === "rejected" ? (
               <Badge className="border-transparent bg-muted px-1.5 py-0 text-[10px] text-muted-foreground">
                 Rejected
+              </Badge>
+            ) : null}
+            {suggestion.status === "resolved" ? (
+              <Badge
+                data-testid={`suggestion-resolved-${suggestion.id}`}
+                className="gap-1 border-transparent bg-muted px-1.5 py-0 text-[10px] text-muted-foreground"
+              >
+                <CheckCheck className="h-3 w-3" aria-hidden="true" />
+                Resolved
               </Badge>
             ) : null}
           </div>

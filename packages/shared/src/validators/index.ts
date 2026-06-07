@@ -240,6 +240,7 @@ export {
   documentSuggestionKindSchema,
   documentSuggestionStatusSchema,
   rejectDocumentSuggestionSchema,
+  resolveDocumentSuggestionSchema,
   updateDocumentReviewThreadSchema,
   type AcceptDocumentSuggestion,
   type CreateDocumentReviewComment,
@@ -247,6 +248,7 @@ export {
   type CreateDocumentSuggestion,
   type CreateDocumentSuggestionComment,
   type RejectDocumentSuggestion,
+  type ResolveDocumentSuggestion,
   type UpdateDocumentReviewThread,
 } from "./document-review.js";
 

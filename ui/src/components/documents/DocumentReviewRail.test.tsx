@@ -72,6 +72,9 @@ function makeSuggestion(overrides: Partial<DocumentSuggestionWithComments> = {})
     rejectedByAgentId: null,
     rejectedByUserId: null,
     rejectedAt: null,
+    resolvedByAgentId: null,
+    resolvedByUserId: null,
+    resolvedAt: null,
     createdAt: new Date("2026-06-01T00:00:00Z"),
     updatedAt: new Date("2026-06-01T00:00:00Z"),
     comments: [],
@@ -95,6 +98,7 @@ function makeIndex(overrides: Partial<DocumentReviewIndex> = {}): DocumentReview
       resolvedReviewThreads: 0,
       acceptedSuggestions: 0,
       rejectedSuggestions: 0,
+      resolvedSuggestions: 0,
       staleAnchors: 0,
       orphanedAnchors: 0,
     },
@@ -289,6 +293,36 @@ describe("DocumentReviewRail", () => {
     // ...but clicking it must not fire the handoff.
     await act(() => done!.click());
     expect(onDoneReviewing).not.toHaveBeenCalled();
+  });
+
+  it("shows a platform-aware comment hotkey in the empty state", async () => {
+    const emptyIndex = makeIndex({
+      counts: { ...makeIndex().counts, openAnchoredThreads: 0, openReviewThreads: 0, pendingSuggestions: 0 },
+      annotationThreads: [],
+      reviewThreads: [],
+      suggestions: [],
+    });
+    const original = Object.getOwnPropertyDescriptor(window.navigator, "platform");
+
+    // Windows/Linux reviewers should see the Ctrl spelling…
+    Object.defineProperty(window.navigator, "platform", { value: "Win32", configurable: true });
+    await act(() =>
+      root.render(
+        <DocumentReviewRail reviewIndex={emptyIndex} canReview canFinishReview latestRevisionId="rev-1" {...baseHandlers} />,
+      ),
+    );
+    expect(container.querySelector('[data-testid="rail-empty"]')?.textContent).toContain("Ctrl+Shift+M");
+
+    // …and macOS reviewers the ⌘ spelling.
+    Object.defineProperty(window.navigator, "platform", { value: "MacIntel", configurable: true });
+    await act(() =>
+      root.render(
+        <DocumentReviewRail reviewIndex={emptyIndex} canReview canFinishReview latestRevisionId="rev-1" {...baseHandlers} />,
+      ),
+    );
+    expect(container.querySelector('[data-testid="rail-empty"]')?.textContent).toContain("⌘⇧M");
+
+    if (original) Object.defineProperty(window.navigator, "platform", original);
   });
 
   it("fires the Done reviewing handler when the viewer can finish review", async () => {

@@ -69,6 +69,9 @@ function makeSuggestion(overrides: Partial<DocumentSuggestionWithComments> = {})
     rejectedByAgentId: null,
     rejectedByUserId: null,
     rejectedAt: null,
+    resolvedByAgentId: null,
+    resolvedByUserId: null,
+    resolvedAt: null,
     createdAt: new Date("2026-06-01T00:00:00Z"),
     updatedAt: new Date("2026-06-01T00:00:00Z"),
     comments: [],
@@ -195,6 +198,27 @@ describe("SuggestionCard", () => {
         />,
       ),
     );
+    expect(container.querySelector('[data-testid="suggestion-resolve-sug-1"]')).toBeNull();
+  });
+
+  it("shows a Resolved badge and no actions for a resolved suggestion", async () => {
+    await act(() =>
+      root.render(
+        <SuggestionCard
+          suggestion={makeSuggestion({ status: "resolved", resolvedAt: new Date() })}
+          latestRevisionId="rev-1"
+          canReview
+          onAccept={vi.fn()}
+          onReject={vi.fn()}
+          onResolve={vi.fn()}
+          onReply={vi.fn()}
+        />,
+      ),
+    );
+    expect(container.querySelector('[data-testid="suggestion-resolved-sug-1"]')).not.toBeNull();
+    expect(container.textContent).toContain("Resolved");
+    // Terminal status: accept/reject/resolve actions are gone.
+    expect(container.querySelector('[data-testid="suggestion-accept-sug-1"]')).toBeNull();
     expect(container.querySelector('[data-testid="suggestion-resolve-sug-1"]')).toBeNull();
   });
 

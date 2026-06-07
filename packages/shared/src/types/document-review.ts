@@ -83,6 +83,9 @@ export interface DocumentSuggestion {
   rejectedByAgentId: string | null;
   rejectedByUserId: string | null;
   rejectedAt: Date | null;
+  resolvedByAgentId: string | null;
+  resolvedByUserId: string | null;
+  resolvedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -133,6 +136,7 @@ export interface DocumentReviewIndexCounts {
   resolvedReviewThreads: number;
   acceptedSuggestions: number;
   rejectedSuggestions: number;
+  resolvedSuggestions: number;
   staleAnchors: number;
   orphanedAnchors: number;
 }
@@ -186,4 +190,9 @@ export interface AcceptDocumentSuggestionRequest {
 
 export interface RejectDocumentSuggestionRequest {
   reason?: string | null;
+}
+
+export interface ResolveDocumentSuggestionRequest {
+  /** Optional note kept for the audit trail (e.g. where it was handled). */
+  note?: string | null;
 }

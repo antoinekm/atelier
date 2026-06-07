@@ -12,6 +12,7 @@ import type {
   DocumentSuggestion,
   DocumentSuggestionComment,
   RejectDocumentSuggestionRequest,
+  ResolveDocumentSuggestionRequest,
 } from "@paperclipai/shared";
 import { api } from "./client";
 
@@ -110,6 +111,18 @@ export const documentReviewsApi = {
   ) =>
     api.post<DocumentSuggestion>(
       `/issues/${issueId}/documents/${encodeURIComponent(key)}/suggestions/${suggestionId}/reject`,
+      data,
+    ),
+  // "Resolve" = handled outside review / no longer applies — a first-class status
+  // distinct from reject (disagreement) so the audit trail keeps the two apart.
+  resolveSuggestion: (
+    issueId: string,
+    key: string,
+    suggestionId: string,
+    data: ResolveDocumentSuggestionRequest = {},
+  ) =>
+    api.post<DocumentSuggestion>(
+      `/issues/${issueId}/documents/${encodeURIComponent(key)}/suggestions/${suggestionId}/resolve`,
       data,
     ),
 };

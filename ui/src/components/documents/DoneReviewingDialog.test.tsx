@@ -41,6 +41,7 @@ function counts(overrides: Partial<DocumentReviewIndexCounts> = {}): DocumentRev
     resolvedReviewThreads: 0,
     acceptedSuggestions: 0,
     rejectedSuggestions: 0,
+    resolvedSuggestions: 0,
     staleAnchors: 1,
     orphanedAnchors: 4,
     ...overrides,

@@ -66,6 +66,9 @@ function suggestion(overrides: Partial<DocumentSuggestionWithComments>): Documen
     rejectedByAgentId: null,
     rejectedByUserId: null,
     rejectedAt: null,
+    resolvedByAgentId: null,
+    resolvedByUserId: null,
+    resolvedAt: null,
     createdAt: new Date(now - 2 * HOUR),
     updatedAt: new Date(now - 2 * HOUR),
     comments: [
@@ -103,6 +106,7 @@ const reviewIndex: DocumentReviewIndex = {
     resolvedReviewThreads: 0,
     acceptedSuggestions: 0,
     rejectedSuggestions: 1,
+    resolvedSuggestions: 0,
     staleAnchors: 1,
     orphanedAnchors: 1,
   },

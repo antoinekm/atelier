@@ -360,7 +360,9 @@ export type DocumentSuggestionKind = (typeof DOCUMENT_SUGGESTION_KINDS)[number];
 export const DOCUMENT_SUGGESTION_INSERT_POSITIONS = ["before", "after"] as const;
 export type DocumentSuggestionInsertPosition = (typeof DOCUMENT_SUGGESTION_INSERT_POSITIONS)[number];
 
-export const DOCUMENT_SUGGESTION_STATUSES = ["pending", "accepted", "rejected"] as const;
+// `resolved` = handled outside review / no longer applies — distinct from
+// `rejected` (an explicit disagreement) so the audit trail keeps the two apart.
+export const DOCUMENT_SUGGESTION_STATUSES = ["pending", "accepted", "rejected", "resolved"] as const;
 export type DocumentSuggestionStatus = (typeof DOCUMENT_SUGGESTION_STATUSES)[number];
 
 export const DOCUMENT_STATUSES = ["draft", "in_review", "approved", "archived"] as const;

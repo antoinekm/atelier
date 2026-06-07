@@ -137,6 +137,7 @@ const emptyIndex = {
     resolvedReviewThreads: 0,
     acceptedSuggestions: 0,
     rejectedSuggestions: 0,
+    resolvedSuggestions: 0,
     staleAnchors: 0,
     orphanedAnchors: 0,
   },

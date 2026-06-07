@@ -170,6 +170,47 @@ describeEmbeddedPostgres("documentReviewService", () => {
     expect(index.counts.acceptedSuggestions).toBe(1);
   });
 
+  it("resolves a suggestion without editing the document, distinct from rejection", async () => {
+    const { issueId, document } = await createIssueWithDocument();
+    const suggestion = await review.createSuggestion(
+      issueId,
+      "plan",
+      {
+        baseRevisionId: document.latestRevisionId!,
+        baseRevisionNumber: document.latestRevisionNumber,
+        kind: "substitution",
+        selector: selectedTextSelector,
+        proposedText: "better text",
+      },
+      { actorType: "user", actorId: "board-user", userId: "board-user" },
+    );
+
+    const resolved = await review.resolveSuggestion(
+      issueId,
+      "plan",
+      suggestion.id,
+      { note: "Handled in a follow-up edit." },
+      { actorType: "user", actorId: "board-user", userId: "board-user" },
+    );
+
+    expect(resolved.status).toBe("resolved");
+    expect(resolved.resolvedByUserId).toBe("board-user");
+    expect(resolved.resolvedAt).toBeInstanceOf(Date);
+    // Resolving must not mutate the document body or create a revision.
+    const revisions = await docs.listIssueDocumentRevisions(issueId, "plan");
+    expect(revisions).toHaveLength(1);
+
+    const index = await review.getReviewIndex(issueId, "plan", { status: "all" });
+    expect(index.counts.pendingSuggestions).toBe(0);
+    expect(index.counts.resolvedSuggestions).toBe(1);
+    expect(index.counts.rejectedSuggestions).toBe(0);
+
+    // A resolved suggestion is terminal — it can't be resolved or rejected again.
+    await expect(
+      review.resolveSuggestion(issueId, "plan", suggestion.id, {}, { actorType: "user", actorId: "board-user", userId: "board-user" }),
+    ).rejects.toThrow(/Only pending suggestions can be resolved/);
+  });
+
   it("remaps pending suggestions across document revisions before acceptance", async () => {
     const { issueId, document } = await createIssueWithDocument();
     const suggestion = await review.createSuggestion(

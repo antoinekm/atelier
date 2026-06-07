@@ -191,6 +191,7 @@ export type {
   DocumentSuggestionComment,
   DocumentSuggestionWithComments,
   RejectDocumentSuggestionRequest,
+  ResolveDocumentSuggestionRequest,
   UpdateDocumentReviewThreadRequest,
 } from "./document-review.js";
 export type { Project, ProjectBudgetSummary, ProjectCodebase, ProjectCodebaseOrigin, ProjectGoalRef, ProjectManagedByPlugin, ProjectWorkspace } from "./project.js";

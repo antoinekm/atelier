@@ -413,16 +413,12 @@ export function DocumentDetail() {
     [binding, invalidateReview],
   );
 
-  // "Resolve" = handled outside / no longer applies. The suggestion data model
-  // only has pending/accepted/rejected today, so we record it as a reject with a
-  // clear non-disagreement reason for the audit trail. A first-class `resolved`
-  // status is tracked as a follow-up (child of PAP-10524).
+  // "Resolve" = handled outside / no longer applies. A first-class `resolved`
+  // status (distinct from reject/disagreement) keeps the audit trail honest.
   const resolveSuggestion = useCallback(
     async (suggestion: DocumentSuggestionWithComments) => {
       if (!binding) return;
-      await documentReviewsApi.rejectSuggestion(binding.issueId, binding.key, suggestion.id, {
-        reason: "Resolved — handled outside review / no longer applies.",
-      });
+      await documentReviewsApi.resolveSuggestion(binding.issueId, binding.key, suggestion.id);
       invalidateReview();
     },
     [binding, invalidateReview],
@@ -666,7 +662,9 @@ export function DocumentDetail() {
               type="button"
               data-testid="document-rail-fab"
               onClick={() => setRailOpen(true)}
-              className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-popover px-4 py-2 text-sm shadow-lg"
+              // Lift the FAB above the iOS home indicator (§5.8) so it clears the
+              // safe-area inset and never occludes the last paragraph.
+              className="fixed bottom-[max(env(safe-area-inset-bottom),1rem)] left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-popover px-4 py-2 text-sm shadow-lg"
             >
               <MessageSquare className="h-4 w-4" aria-hidden="true" />
               {(reviewIndex?.counts.openAnchoredThreads ?? 0) + (reviewIndex?.counts.openReviewThreads ?? 0)}

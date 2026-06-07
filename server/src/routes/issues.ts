@@ -49,6 +49,7 @@ import {
   issueDocumentKeySchema,
   ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY,
   rejectDocumentSuggestionSchema,
+  resolveDocumentSuggestionSchema,
   rejectIssueThreadInteractionSchema,
   restoreIssueDocumentRevisionSchema,
   respondIssueThreadInteractionSchema,
@@ -3573,6 +3574,52 @@ export function issueRoutes(
           suggestionId: suggestion.id,
           kind: suggestion.kind,
           reason: req.body.reason ?? null,
+        },
+      });
+      res.json(suggestion);
+    },
+  );
+
+  router.post(
+    "/issues/:id/documents/:key/suggestions/:suggestionId/resolve",
+    validate(resolveDocumentSuggestionSchema),
+    async (req, res) => {
+      const id = req.params.id as string;
+      const issue = await svc.getById(id);
+      if (!issue) {
+        res.status(404).json({ error: "Issue not found" });
+        return;
+      }
+      assertCompanyAccess(req, issue.companyId);
+      if (!(await assertAgentIssueMutationAllowed(req, res, issue))) return;
+      const keyParsed = issueDocumentKeySchema.safeParse(String(req.params.key ?? "").trim().toLowerCase());
+      if (!keyParsed.success) {
+        res.status(400).json({ error: "Invalid document key", details: keyParsed.error.issues });
+        return;
+      }
+      const { actor, annotationActor } = annotationActorInput(req);
+      const suggestion = await documentReviewsSvc.resolveSuggestion(
+        issue.id,
+        keyParsed.data,
+        req.params.suggestionId as string,
+        req.body,
+        annotationActor,
+      );
+      await logActivity(db, {
+        companyId: issue.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        runId: actor.runId,
+        action: "issue.document_suggestion_resolved",
+        entityType: "issue",
+        entityId: issue.id,
+        details: {
+          documentKey: suggestion.documentKey,
+          documentId: suggestion.documentId,
+          suggestionId: suggestion.id,
+          kind: suggestion.kind,
+          note: req.body.note ?? null,
         },
       });
       res.json(suggestion);

@@ -32,6 +32,7 @@ import {
   type DocumentSuggestion,
   type DocumentSuggestionComment,
   type RejectDocumentSuggestion,
+  type ResolveDocumentSuggestion,
   type UpdateDocumentReviewThread,
 } from "@paperclipai/shared";
 import { conflict, notFound, unprocessable } from "../errors.js";
@@ -167,6 +168,9 @@ const suggestionSelect = {
   rejectedByAgentId: documentSuggestions.rejectedByAgentId,
   rejectedByUserId: documentSuggestions.rejectedByUserId,
   rejectedAt: documentSuggestions.rejectedAt,
+  resolvedByAgentId: documentSuggestions.resolvedByAgentId,
+  resolvedByUserId: documentSuggestions.resolvedByUserId,
+  resolvedAt: documentSuggestions.resolvedAt,
   createdAt: documentSuggestions.createdAt,
   updatedAt: documentSuggestions.updatedAt,
 };
@@ -365,6 +369,7 @@ export function documentReviewService(db: Db) {
           pendingSuggestions: sql<number>`count(*) filter (where ${documentSuggestions.status} = 'pending')`.mapWith(Number),
           acceptedSuggestions: sql<number>`count(*) filter (where ${documentSuggestions.status} = 'accepted')`.mapWith(Number),
           rejectedSuggestions: sql<number>`count(*) filter (where ${documentSuggestions.status} = 'rejected')`.mapWith(Number),
+          resolvedSuggestions: sql<number>`count(*) filter (where ${documentSuggestions.status} = 'resolved')`.mapWith(Number),
           staleAnchors: sql<number>`count(*) filter (where ${documentSuggestions.status} = 'pending' and ${documentSuggestions.anchorState} = 'stale')`.mapWith(Number),
           orphanedAnchors: sql<number>`count(*) filter (where ${documentSuggestions.status} = 'pending' and ${documentSuggestions.anchorState} = 'orphaned')`.mapWith(Number),
         }).from(documentSuggestions).where(and(
@@ -387,6 +392,7 @@ export function documentReviewService(db: Db) {
         pendingSuggestions: 0,
         acceptedSuggestions: 0,
         rejectedSuggestions: 0,
+        resolvedSuggestions: 0,
         staleAnchors: 0,
         orphanedAnchors: 0,
       };
@@ -398,6 +404,7 @@ export function documentReviewService(db: Db) {
         pendingSuggestions: suggestionCounts.pendingSuggestions,
         acceptedSuggestions: suggestionCounts.acceptedSuggestions,
         rejectedSuggestions: suggestionCounts.rejectedSuggestions,
+        resolvedSuggestions: suggestionCounts.resolvedSuggestions,
         staleAnchors: annotationCounts.staleAnchors + suggestionCounts.staleAnchors,
         orphanedAnchors: annotationCounts.orphanedAnchors + suggestionCounts.orphanedAnchors,
       };
@@ -670,6 +677,32 @@ export function documentReviewService(db: Db) {
         rejectedByAgentId: actor.agentId ?? null,
         rejectedByUserId: actor.userId ?? null,
         rejectedAt: now,
+        updatedAt: now,
+      }).where(eq(documentSuggestions.id, suggestion.id)).returning(suggestionSelect);
+      return updated;
+    }),
+
+    // "Resolve" = handled outside review / no longer applies. Distinct from
+    // reject (disagreement) so the audit trail keeps the two apart. Like reject,
+    // only a pending suggestion can be resolved.
+    resolveSuggestion: async (
+      issueId: string,
+      key: string,
+      suggestionId: string,
+      _input: ResolveDocumentSuggestion,
+      actor: ActorInput,
+    ) => db.transaction(async (tx) => {
+      const suggestion = await getSuggestionForIssue(issueId, key, suggestionId, tx);
+      if (!suggestion) throw notFound("Suggestion not found");
+      if (suggestion.status !== "pending") {
+        throw conflict("Only pending suggestions can be resolved", { status: suggestion.status });
+      }
+      const now = new Date();
+      const [updated] = await tx.update(documentSuggestions).set({
+        status: "resolved",
+        resolvedByAgentId: actor.agentId ?? null,
+        resolvedByUserId: actor.userId ?? null,
+        resolvedAt: now,
         updatedAt: now,
       }).where(eq(documentSuggestions.id, suggestion.id)).returning(suggestionSelect);
       return updated;

@@ -80,6 +80,10 @@ export const rejectDocumentSuggestionSchema = z.object({
   reason: z.string().trim().min(1).max(2_000).nullable().optional(),
 }).strict();
 
+export const resolveDocumentSuggestionSchema = z.object({
+  note: z.string().trim().min(1).max(2_000).nullable().optional(),
+}).strict();
+
 export type CreateDocumentReviewThread = z.infer<typeof createDocumentReviewThreadSchema>;
 export type CreateDocumentReviewComment = z.infer<typeof createDocumentReviewCommentSchema>;
 export type UpdateDocumentReviewThread = z.infer<typeof updateDocumentReviewThreadSchema>;
@@ -87,3 +91,4 @@ export type CreateDocumentSuggestion = z.infer<typeof createDocumentSuggestionSc
 export type CreateDocumentSuggestionComment = z.infer<typeof createDocumentSuggestionCommentSchema>;
 export type AcceptDocumentSuggestion = z.infer<typeof acceptDocumentSuggestionSchema>;
 export type RejectDocumentSuggestion = z.infer<typeof rejectDocumentSuggestionSchema>;
+export type ResolveDocumentSuggestion = z.infer<typeof resolveDocumentSuggestionSchema>;

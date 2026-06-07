@@ -51,9 +51,11 @@ function stateBadge(thread: RailThread): { label: string; className: string; ico
     };
   }
   if (thread.status === "resolved") {
+    // Spec §5.4: badge color matches the body highlight. The resolved highlight
+    // is a muted/low-sat yellow, so the badge is muted yellow (not green).
     return {
       label: "Resolved",
-      className: "border-transparent bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300",
+      className: "border-transparent bg-yellow-50 text-yellow-700/80 dark:bg-yellow-950/40 dark:text-yellow-200/70",
     };
   }
   return {
@@ -174,20 +176,24 @@ export function DocumentThreadCard({
             className="min-h-[2.25rem] resize-none text-sm"
           />
           <div className="flex items-center justify-between gap-2">
+            {reply.trim() ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs"
+                disabled={pending != null}
+                onClick={handleReply}
+              >
+                Reply
+              </Button>
+            ) : (
+              <span />
+            )}
             <Button
               type="button"
               size="sm"
               variant="ghost"
-              className="h-7 px-2 text-xs"
-              disabled={!reply.trim() || pending != null}
-              onClick={handleReply}
-            >
-              Reply
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
               className="h-7 px-2 text-xs"
               disabled={pending != null}
               onClick={handleToggle}

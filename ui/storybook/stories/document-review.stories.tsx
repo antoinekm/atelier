@@ -242,6 +242,7 @@ const railHandlers = {
   onAddOverallComment: asyncNoop,
   onAcceptSuggestion: asyncNoop,
   onRejectSuggestion: asyncNoop,
+  onResolveSuggestion: asyncNoop,
   onReplySuggestion: asyncNoop,
   onViewSuggestionDiff: noop,
 };
@@ -408,10 +409,10 @@ export const RailMobileSheet: Story = {
 export const Suggestions: Story = {
   render: () => (
     <div className="w-[340px] space-y-3 p-4">
-      <SuggestionCard suggestion={suggestion({ id: "s-replace", kind: "substitution" })} latestRevisionId="rev-12" canReview authorMaps={{ agentMap }} onAccept={asyncNoop} onReject={asyncNoop} onReply={asyncNoop} />
-      <SuggestionCard suggestion={suggestion({ id: "s-insert", kind: "insertion", insertionPosition: "after", selectedText: "review flow", proposedText: "Also note the orphan-reconciliation pass.", comments: [] })} latestRevisionId="rev-12" canReview authorMaps={{ agentMap }} onAccept={asyncNoop} onReject={asyncNoop} onReply={asyncNoop} />
-      <SuggestionCard suggestion={suggestion({ id: "s-delete", kind: "deletion", selectedText: "This sentence is redundant.", proposedText: null, comments: [] })} latestRevisionId="rev-12" canReview authorMaps={{ agentMap }} onAccept={asyncNoop} onReject={asyncNoop} onReply={asyncNoop} />
-      <SuggestionCard suggestion={suggestion({ id: "s-rebase", kind: "substitution", currentRevisionId: "rev-11", selectedText: "stale base", proposedText: "needs rebase", comments: [] })} latestRevisionId="rev-12" canReview authorMaps={{ agentMap }} onAccept={asyncNoop} onReject={asyncNoop} onReply={asyncNoop} />
+      <SuggestionCard suggestion={suggestion({ id: "s-replace", kind: "substitution" })} latestRevisionId="rev-12" canReview authorMaps={{ agentMap }} onAccept={asyncNoop} onReject={asyncNoop} onResolve={asyncNoop} onReply={asyncNoop} />
+      <SuggestionCard suggestion={suggestion({ id: "s-insert", kind: "insertion", insertionPosition: "after", selectedText: "review flow", proposedText: "Also note the orphan-reconciliation pass.", comments: [] })} latestRevisionId="rev-12" canReview authorMaps={{ agentMap }} onAccept={asyncNoop} onReject={asyncNoop} onResolve={asyncNoop} onReply={asyncNoop} />
+      <SuggestionCard suggestion={suggestion({ id: "s-delete", kind: "deletion", selectedText: "This sentence is redundant.", proposedText: null, comments: [] })} latestRevisionId="rev-12" canReview authorMaps={{ agentMap }} onAccept={asyncNoop} onReject={asyncNoop} onResolve={asyncNoop} onReply={asyncNoop} />
+      <SuggestionCard suggestion={suggestion({ id: "s-rebase", kind: "substitution", currentRevisionId: "rev-11", selectedText: "stale base", proposedText: "needs rebase", comments: [] })} latestRevisionId="rev-12" canReview authorMaps={{ agentMap }} onAccept={asyncNoop} onReject={asyncNoop} onResolve={asyncNoop} onReply={asyncNoop} />
     </div>
   ),
 };

@@ -161,6 +161,43 @@ describe("SuggestionCard", () => {
     expect(onReject).toHaveBeenCalledWith(expect.objectContaining({ id: "sug-1" }), "Not needed");
   });
 
+  it("resolves a pending suggestion without a reason when onResolve is provided", async () => {
+    const onResolve = vi.fn();
+    await act(() =>
+      root.render(
+        <SuggestionCard
+          suggestion={makeSuggestion()}
+          latestRevisionId="rev-1"
+          canReview
+          onAccept={vi.fn()}
+          onReject={vi.fn()}
+          onResolve={onResolve}
+          onReply={vi.fn()}
+        />,
+      ),
+    );
+    const resolve = container.querySelector<HTMLButtonElement>('[data-testid="suggestion-resolve-sug-1"]');
+    expect(resolve).not.toBeNull();
+    await act(() => resolve!.click());
+    expect(onResolve).toHaveBeenCalledWith(expect.objectContaining({ id: "sug-1" }));
+  });
+
+  it("omits Resolve when no handler is supplied", async () => {
+    await act(() =>
+      root.render(
+        <SuggestionCard
+          suggestion={makeSuggestion()}
+          latestRevisionId="rev-1"
+          canReview
+          onAccept={vi.fn()}
+          onReject={vi.fn()}
+          onReply={vi.fn()}
+        />,
+      ),
+    );
+    expect(container.querySelector('[data-testid="suggestion-resolve-sug-1"]')).toBeNull();
+  });
+
   it("hides review actions for read-only viewers", async () => {
     await act(() =>
       root.render(

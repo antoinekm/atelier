@@ -1,5 +1,5 @@
 import type { DocumentSuggestionKind, DocumentSuggestionInsertPosition } from "@paperclipai/shared";
-import { Link2, MessageSquarePlus, Pencil } from "lucide-react";
+import { ChevronDown, Link2, MessageSquarePlus, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -88,6 +88,7 @@ export function SelectionToolbar({
           >
             <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
             Suggest edit
+            <ChevronDown className="h-3 w-3 opacity-70" aria-hidden="true" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-44">

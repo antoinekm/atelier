@@ -3,7 +3,7 @@ import type {
   DocumentReviewIndex,
   DocumentSuggestionWithComments,
 } from "@paperclipai/shared";
-import { CheckCircle2, MessageSquarePlus } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronRight, MessageSquarePlus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,6 +29,20 @@ const FILTERS: { id: ReviewFilter; label: string }[] = [
   { id: "orphaned", label: "Orphaned" },
 ];
 
+function threadBucket(thread: RailThread): ReviewFilter {
+  if (thread.anchorState === "orphaned") return "orphaned";
+  if (thread.anchorState === "stale") return "stale";
+  if (thread.status === "resolved") return "resolved";
+  return "open";
+}
+
+function suggestionBucket(suggestion: DocumentSuggestionWithComments): ReviewFilter {
+  if (suggestion.anchorState === "orphaned") return "orphaned";
+  if (suggestion.anchorState === "stale") return "stale";
+  if (suggestion.status !== "pending") return "resolved";
+  return "open";
+}
+
 export interface DocumentReviewRailProps {
   reviewIndex?: DocumentReviewIndex;
   loading?: boolean;
@@ -46,6 +60,7 @@ export interface DocumentReviewRailProps {
   onAddOverallComment?: (body: string) => Promise<void> | void;
   onAcceptSuggestion: (suggestion: DocumentSuggestionWithComments) => Promise<void> | void;
   onRejectSuggestion: (suggestion: DocumentSuggestionWithComments, reason: string) => Promise<void> | void;
+  onResolveSuggestion?: (suggestion: DocumentSuggestionWithComments) => Promise<void> | void;
   onReplySuggestion: (suggestion: DocumentSuggestionWithComments, body: string) => Promise<void> | void;
   onViewSuggestionDiff?: (suggestion: DocumentSuggestionWithComments) => void;
   onDoneReviewing?: () => void;
@@ -102,6 +117,7 @@ function ReviewRailBody({
   onAddOverallComment,
   onAcceptSuggestion,
   onRejectSuggestion,
+  onResolveSuggestion,
   onReplySuggestion,
   onViewSuggestionDiff,
   onDoneReviewing,
@@ -145,19 +161,22 @@ function ReviewRailBody({
 
   const activeFilters = filters.size === 0 ? new Set<ReviewFilter>(FILTERS.map((f) => f.id)) : filters;
 
-  const threadMatches = (thread: RailThread): boolean => {
-    if (thread.anchorState === "orphaned") return activeFilters.has("orphaned");
-    if (thread.anchorState === "stale") return activeFilters.has("stale");
-    if (thread.status === "resolved") return activeFilters.has("resolved");
-    return activeFilters.has("open");
-  };
+  const threadMatches = (thread: RailThread): boolean => activeFilters.has(threadBucket(thread));
 
-  const suggestionMatches = (suggestion: DocumentSuggestionWithComments): boolean => {
-    if (suggestion.anchorState === "orphaned") return activeFilters.has("orphaned");
-    if (suggestion.anchorState === "stale") return activeFilters.has("stale");
-    if (suggestion.status !== "pending") return activeFilters.has("resolved");
-    return activeFilters.has("open");
-  };
+  const suggestionMatches = (suggestion: DocumentSuggestionWithComments): boolean =>
+    activeFilters.has(suggestionBucket(suggestion));
+
+  // Per-filter counts for the active tab so empty buckets read as empty and the
+  // stale/orphaned rows become discoverable rather than guess-and-click.
+  const filterCounts = useMemo(() => {
+    const counts: Record<ReviewFilter, number> = { open: 0, resolved: 0, stale: 0, orphaned: 0 };
+    if (tab === "comments") {
+      for (const thread of [...overallThreads, ...anchoredThreads]) counts[threadBucket(thread)] += 1;
+    } else {
+      for (const s of reviewIndex?.suggestions ?? []) counts[suggestionBucket(s)] += 1;
+    }
+    return counts;
+  }, [tab, overallThreads, anchoredThreads, reviewIndex?.suggestions]);
 
   const visibleOverall = overallThreads.filter(threadMatches);
   const visibleAnchored = anchoredThreads.filter(threadMatches);
@@ -220,6 +239,9 @@ function ReviewRailBody({
                   )}
                 >
                   {filter.label}
+                  {filterCounts[filter.id] > 0 ? (
+                    <span className="ml-1 tabular-nums opacity-70">{filterCounts[filter.id]}</span>
+                  ) : null}
                 </button>
               ))}
             </div>
@@ -332,6 +354,7 @@ function ReviewRailBody({
                           authorMaps={authorMaps}
                           onAccept={onAcceptSuggestion}
                           onReject={onRejectSuggestion}
+                          onResolve={onResolveSuggestion}
                           onReply={onReplySuggestion}
                           onViewDiff={onViewSuggestionDiff}
                         />
@@ -397,12 +420,16 @@ function OrphanGroup({ count, children }: { count: number; children: React.React
     <div className="rounded-md border border-dashed border-border bg-muted/30 p-1.5" data-testid="rail-orphan-group">
       <button
         type="button"
-        className="flex w-full items-center justify-between px-1 py-0.5 text-[11px] font-medium text-muted-foreground"
+        className="flex w-full items-center gap-1 px-1 py-0.5 text-[11px] font-medium text-muted-foreground"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
       >
+        {open ? (
+          <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+        )}
         <span>Orphaned feedback ({count})</span>
-        <span aria-hidden="true">{open ? "−" : "+"}</span>
       </button>
       {open ? <div className="mt-1.5 space-y-2">{children}</div> : null}
     </div>

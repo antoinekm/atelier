@@ -3,7 +3,7 @@ import type {
   DocumentSuggestionKind,
   DocumentSuggestionWithComments,
 } from "@paperclipai/shared";
-import { AlertTriangle, Check, MoreHorizontal, X } from "lucide-react";
+import { AlertTriangle, Check, CheckCheck, MoreHorizontal, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,9 +26,14 @@ const KIND_LABEL: Record<DocumentSuggestionKind, string> = {
   substitution: "Replace",
 };
 
+// Insert/delete badges read the same §5.4 tokens the inline diff body uses, so a
+// future token change propagates to both. Substitution has no dedicated token
+// (it composes insert + delete), so it keeps the amber pairing.
 const KIND_BADGE_CLASS: Record<DocumentSuggestionKind, string> = {
-  insertion: "border-transparent bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300",
-  deletion: "border-transparent bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-300",
+  insertion:
+    "border-transparent bg-[var(--paperclip-doc-suggestion-insert-bg)] text-[var(--paperclip-doc-suggestion-insert-fg)]",
+  deletion:
+    "border-transparent bg-[var(--paperclip-doc-suggestion-delete-bg)] text-[var(--paperclip-doc-suggestion-delete-fg)]",
   substitution: "border-transparent bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300",
 };
 
@@ -41,6 +46,12 @@ export interface SuggestionCardProps {
   authorMaps?: ReviewAuthorMaps;
   onAccept: (suggestion: DocumentSuggestionWithComments) => Promise<void> | void;
   onReject: (suggestion: DocumentSuggestionWithComments, reason: string) => Promise<void> | void;
+  /**
+   * Resolve without accepting or rejecting — "handled outside / no longer
+   * applies". The safety valve when Accept is gated on a rebase and Reject would
+   * falsely imply disagreement. No reason required.
+   */
+  onResolve?: (suggestion: DocumentSuggestionWithComments) => Promise<void> | void;
   onReply: (suggestion: DocumentSuggestionWithComments, body: string) => Promise<void> | void;
   /** Opens the diff modal for the revision this suggestion would produce. */
   onViewDiff?: (suggestion: DocumentSuggestionWithComments) => void;
@@ -62,6 +73,7 @@ export function SuggestionCard({
   authorMaps,
   onAccept,
   onReject,
+  onResolve,
   onReply,
   onViewDiff,
   className,
@@ -69,7 +81,7 @@ export function SuggestionCard({
   const [reply, setReply] = useState("");
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
-  const [pending, setPending] = useState<null | "accept" | "reject" | "reply">(null);
+  const [pending, setPending] = useState<null | "accept" | "reject" | "resolve" | "reply">(null);
 
   const author = resolveReviewAuthor(suggestion, authorMaps ?? {});
   const kindLabel = KIND_LABEL[suggestion.kind];
@@ -103,6 +115,16 @@ export function SuggestionCard({
       await onReject(suggestion, trimmed);
       setRejecting(false);
       setReason("");
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const handleResolve = async () => {
+    if (!onResolve) return;
+    setPending("resolve");
+    try {
+      await onResolve(suggestion);
     } finally {
       setPending(null);
     }
@@ -224,16 +246,20 @@ export function SuggestionCard({
               className="min-h-[2.25rem] resize-none text-sm"
             />
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-7 px-2 text-xs"
-                disabled={!reply.trim() || pending != null}
-                onClick={handleReply}
-              >
-                Reply
-              </Button>
+              {reply.trim() ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-xs"
+                  disabled={pending != null}
+                  onClick={handleReply}
+                >
+                  Reply
+                </Button>
+              ) : (
+                <span />
+              )}
               {isPending ? (
                 <div className="flex items-center gap-1.5">
                   {rejecting ? null : (
@@ -273,6 +299,20 @@ export function SuggestionCard({
                     <X className="h-3.5 w-3.5" aria-hidden="true" />
                     Reject
                   </Button>
+                  {onResolve ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 gap-1 px-2 text-xs"
+                      disabled={pending != null}
+                      onClick={handleResolve}
+                      data-testid={`suggestion-resolve-${suggestion.id}`}
+                    >
+                      <CheckCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                      Resolve
+                    </Button>
+                  ) : null}
                 </div>
               ) : null}
             </div>

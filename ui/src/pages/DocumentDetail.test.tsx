@@ -21,7 +21,10 @@ const mocks = vi.hoisted(() => ({
   params: { value: { documentId: "doc-1" } as { documentId?: string } },
 }));
 
-vi.mock("react-router-dom", () => ({ useParams: () => mocks.params.value }));
+vi.mock("react-router-dom", () => ({
+  useParams: () => mocks.params.value,
+  useSearchParams: () => [new URLSearchParams(), () => {}],
+}));
 vi.mock("@/lib/router", () => ({
   Link: ({ children, to }: { children: ReactNode; to: string }) => <a href={to}>{children}</a>,
 }));

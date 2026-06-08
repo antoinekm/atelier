@@ -61,6 +61,13 @@ Expected work product metadata shape:
 `column` are optional. `relativePath` must be relative to that workspace root;
 do not store host-local absolute paths as workspace references.
 
+Workspace file links resolve only inside registered Paperclip workspaces. The
+default target is the current issue's execution workspace first, then its
+project workspace. A link may target another same-company project workspace only
+when it carries both that `projectId` and `workspaceId`. Paperclip does not
+resolve arbitrary machine-wide filesystem paths, absolute host paths, home
+paths, or relative paths that escape the selected workspace.
+
 ## Completion Pattern
 
 When a task produces a user-inspectable deliverable file:

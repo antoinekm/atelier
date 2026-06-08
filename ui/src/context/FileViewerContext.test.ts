@@ -79,10 +79,11 @@ describe("writeFileViewerStateToSearch", () => {
   });
 
   it("round-trips explicit target project workspace params", () => {
+    const targetPath = "content-os/cases/active/2026-06-06-pap-10199-bundled-skills/README.md";
     const next = writeFileViewerStateToSearch(
       "?existing=1",
       {
-        path: "content-os/cases/readme.md",
+        path: targetPath,
         line: 7,
         column: null,
         workspace: "auto",
@@ -92,7 +93,7 @@ describe("writeFileViewerStateToSearch", () => {
     );
     const state = readFileViewerStateFromSearch(next);
     expect(state).toEqual({
-      path: "content-os/cases/readme.md",
+      path: targetPath,
       line: 7,
       column: null,
       workspace: "auto",

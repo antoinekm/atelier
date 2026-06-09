@@ -354,6 +354,8 @@ export interface WorkspaceFileBrowserProps {
     column?: number | null;
     projectId?: string | null;
     workspaceId?: string | null;
+    browseFolderPath?: string | null;
+    browseQuery?: string | null;
   }) => void;
   onBrowseStateChange?: (state: {
     q: string | null;
@@ -410,6 +412,7 @@ export function WorkspaceFileBrowser({
 
   const listboxId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const projectsQuery = useQuery({
     queryKey: companyId ? queryKeys.projects.list(companyId) : ["projects", "__none__"],
@@ -564,8 +567,23 @@ export function WorkspaceFileBrowser({
       setFolderPath(parsed.path);
       setSearchInput("");
       setDebouncedQuery("");
-    } else if (parsed) onOpen({ path: parsed.path, ...target, line: parsed.line, column: parsed.column });
-    else onOpen({ path: value, ...target });
+    } else if (parsed) {
+      onOpen({
+        path: parsed.path,
+        ...target,
+        line: parsed.line,
+        column: parsed.column,
+        browseFolderPath: folderPath,
+        browseQuery: searchInput.trim() || null,
+      });
+    } else {
+      onOpen({
+        path: value,
+        ...target,
+        browseFolderPath: folderPath,
+        browseQuery: searchInput.trim() || null,
+      });
+    }
   }
 
   function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -586,6 +604,8 @@ export function WorkspaceFileBrowser({
           path: item.relativePath,
           workspace: effectiveWorkspace,
           ...itemTarget,
+          browseFolderPath: folderPath,
+          browseQuery: searchInput.trim() || null,
         });
       }
       else openTypedPath();
@@ -596,7 +616,20 @@ export function WorkspaceFileBrowser({
   const highlightedItemKey = highlightedItem ? itemKey(highlightedItem) : null;
   const selectedItem = selectedItemIndex >= 0 ? items[selectedItemIndex] : null;
   const selectedItemKey = selectedItem ? itemKey(selectedItem) : null;
+  const selectedOptionId = selectedItemKey ? `${listboxId}-file-${selectedItemKey}` : null;
   const activeOptionId = highlightedItemKey ? `${listboxId}-file-${highlightedItemKey}` : undefined;
+
+  useEffect(() => {
+    if (!selectedOptionId) return;
+    const scrollContainer = scrollContainerRef.current;
+    const selectedElement = document.getElementById(selectedOptionId);
+    if (!scrollContainer || !selectedElement) return;
+    const containerRect = scrollContainer.getBoundingClientRect();
+    const selectedRect = selectedElement.getBoundingClientRect();
+    if (selectedRect.top < containerRect.top || selectedRect.bottom > containerRect.bottom) {
+      selectedElement.scrollIntoView({ block: "nearest" });
+    }
+  }, [folderPath, items, selectedOptionId]);
 
   function openFolder(path: string | null) {
     setFolderPath(path);
@@ -612,6 +645,8 @@ export function WorkspaceFileBrowser({
       path: item.relativePath,
       workspace: effectiveWorkspace,
       ...itemTarget,
+      browseFolderPath: folderPath,
+      browseQuery: searchInput.trim() || null,
     });
   }
 
@@ -741,7 +776,7 @@ export function WorkspaceFileBrowser({
         {announcement}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">{body}</div>
+      <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto">{body}</div>
 
       {data?.truncated ? (
         <div className="border-t border-border pt-2 text-[11px] text-muted-foreground">

@@ -513,6 +513,8 @@ export function FileViewerSheet({
       column?: number | null;
       projectId?: string | null;
       workspaceId?: string | null;
+      browseFolderPath?: string | null;
+      browseQuery?: string | null;
     }) => {
       viewer.open(
         {
@@ -523,7 +525,13 @@ export function FileViewerSheet({
           projectId: ref.projectId ?? null,
           workspaceId: ref.workspaceId ?? null,
         },
-        { fromBrowse: true },
+        {
+          fromBrowse: true,
+          browseState: {
+            folderPath: ref.browseFolderPath ?? null,
+            q: ref.browseQuery ?? null,
+          },
+        },
       );
     },
     [viewer],

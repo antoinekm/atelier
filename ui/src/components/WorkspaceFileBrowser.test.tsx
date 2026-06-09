@@ -156,6 +156,10 @@ describe("WorkspaceFileBrowser", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     useQueryMock.mockReset();
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    });
   });
 
   afterEach(() => {
@@ -165,6 +169,7 @@ describe("WorkspaceFileBrowser", () => {
       });
     }
     container.remove();
+    vi.restoreAllMocks();
   });
 
   function renderBrowser(onOpen = vi.fn(), props: Partial<ComponentProps<typeof WorkspaceFileBrowser>> = {}) {
@@ -196,7 +201,12 @@ describe("WorkspaceFileBrowser", () => {
     act(() => {
       option!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     });
-    expect(onOpen).toHaveBeenCalledWith({ path: "ui/src/pages/IssueDetail.tsx", workspace: "auto" });
+    expect(onOpen).toHaveBeenCalledWith({
+      path: "ui/src/pages/IssueDetail.tsx",
+      workspace: "auto",
+      browseFolderPath: null,
+      browseQuery: null,
+    });
   });
 
   it("groups nested paths into collapsible folder rows instead of repeating full paths", () => {
@@ -385,7 +395,12 @@ describe("WorkspaceFileBrowser", () => {
     act(() => {
       input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
     });
-    expect(onOpen).toHaveBeenCalledWith({ path: "ui/src/pages/IssueDetail.tsx", workspace: "auto" });
+    expect(onOpen).toHaveBeenCalledWith({
+      path: "ui/src/pages/IssueDetail.tsx",
+      workspace: "auto",
+      browseFolderPath: null,
+      browseQuery: null,
+    });
   });
 
   it("reports live search state for URL-backed browse preservation", async () => {
@@ -467,6 +482,8 @@ describe("WorkspaceFileBrowser", () => {
       workspace: "project",
       projectId: "project-content",
       workspaceId: "workspace-content",
+      browseFolderPath: null,
+      browseQuery: null,
     });
   });
 
@@ -515,7 +532,80 @@ describe("WorkspaceFileBrowser", () => {
       workspace: "project",
       projectId: "project-content",
       workspaceId: "workspace-content",
+      browseFolderPath: folderPath,
+      browseQuery: null,
     });
+  });
+
+  it("opens sibling files with the current folder scope", () => {
+    const folderPath = "docs/cli";
+    const controlPlane = createItem({
+      title: "control-plane-commands.md",
+      relativePath: `${folderPath}/control-plane-commands.md`,
+      displayPath: `${folderPath}/control-plane-commands.md`,
+    });
+    useQueryMock.mockReturnValue(ok(availableResponse([
+      createItem({
+        title: "setup-commands.md",
+        relativePath: `${folderPath}/setup-commands.md`,
+        displayPath: `${folderPath}/setup-commands.md`,
+      }),
+      controlPlane,
+    ])));
+
+    const { onOpen } = renderBrowser(vi.fn(), {
+      compact: true,
+      autoFocusSearch: false,
+      initialFolderPath: folderPath,
+      selectedPath: `${folderPath}/setup-commands.md`,
+    });
+
+    const option = Array.from(container.querySelectorAll('[role="treeitem"]')).find(
+      (el) => el.getAttribute("title") === controlPlane.displayPath,
+    )!;
+    act(() => {
+      option.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+
+    expect(onOpen).toHaveBeenCalledWith({
+      path: `${folderPath}/control-plane-commands.md`,
+      workspace: "auto",
+      browseFolderPath: folderPath,
+      browseQuery: null,
+    });
+  });
+
+  it("scrolls the selected file into view after breadcrumb-scoped listings", () => {
+    const folderPath = "docs";
+    const selectedPath = "docs/cli/setup-commands.md";
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function getBoundingClientRect(this: Element) {
+      if (this.getAttribute("aria-selected") === "true") {
+        return { top: 1086, bottom: 1114, left: 0, right: 100, width: 100, height: 28, x: 0, y: 1086, toJSON: () => ({}) };
+      }
+      if (typeof this.className === "string" && this.className.includes("overflow-y-auto")) {
+        return { top: 188, bottom: 546, left: 0, right: 320, width: 320, height: 358, x: 0, y: 188, toJSON: () => ({}) };
+      }
+      return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) };
+    });
+    useQueryMock.mockReturnValue(ok(availableResponse([createItem({
+      title: "setup-commands.md",
+      relativePath: selectedPath,
+      displayPath: selectedPath,
+    })])));
+
+    renderBrowser(vi.fn(), {
+      compact: true,
+      autoFocusSearch: false,
+      initialFolderPath: folderPath,
+      selectedPath,
+    });
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
   });
 
   it("lets breadcrumb folders navigate to parent directories", () => {

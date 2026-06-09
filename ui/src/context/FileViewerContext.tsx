@@ -27,7 +27,10 @@ export interface FileViewerContextValue {
     ref: Pick<ParsedWorkspaceFileRef, "path" | "line" | "column" | "projectId" | "workspaceId"> & {
       workspace?: WorkspaceFileSelector;
     },
-    opts?: { fromBrowse?: boolean },
+    opts?: {
+      fromBrowse?: boolean;
+      browseState?: Partial<FileViewerBrowseState>;
+    },
   ): void;
   /** Open (or stay in) browse mode, optionally seeding the search query. */
   openBrowse(opts?: { q?: string }): void;
@@ -217,10 +220,19 @@ function EnabledFileViewerProvider({ issueId, children }: Omit<FileViewerProvide
       if (opts?.fromBrowse) {
         const params = new URLSearchParams(nextSearch);
         params.set("browse", "1");
-        const prevQ = new URLSearchParams(location.search).get("q");
-        const prevFolder = new URLSearchParams(location.search).get("folder");
-        if (prevQ) params.set("q", prevQ);
-        if (prevFolder) params.set("folder", prevFolder);
+        const previousParams = new URLSearchParams(location.search);
+        const prevQ = previousParams.get("q");
+        const prevFolder = previousParams.get("folder");
+        const nextQ = Object.prototype.hasOwnProperty.call(opts.browseState ?? {}, "q")
+          ? opts.browseState?.q
+          : prevQ;
+        const nextFolder = Object.prototype.hasOwnProperty.call(opts.browseState ?? {}, "folderPath")
+          ? opts.browseState?.folderPath
+          : prevFolder;
+        if (nextQ) params.set("q", nextQ);
+        else params.delete("q");
+        if (nextFolder) params.set("folder", nextFolder);
+        else params.delete("folder");
         nextSearch = params.toString() ? `?${params.toString()}` : "";
       }
       navigateSearch(nextSearch);

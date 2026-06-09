@@ -336,6 +336,20 @@ Mount surfaces currently wired in the host include:
 - `commentAnnotation`
 - `commentContextMenuItem`
 
+### `routeSidebar` and the app sidebar
+
+A `routeSidebar` slot gives a plugin page route its own contextual navigation.
+It **coexists** with the main app sidebar rather than replacing it: while your
+route is active the host collapses the app `<Sidebar/>` to its 64px icon rail
+(still hover/peek-able) and renders your sidebar in a second pane, yielding
+`[ app rail ][ your sidebar ][ content ]`.
+
+Because the host drives this collapse, a plugin should **not** mount
+`RequestCollapsedSidebar` or otherwise try to collapse the app sidebar itself —
+doing so is redundant and fights the host. The host restores the user's previous
+sidebar state when they navigate away, and an explicit user pin (expanded or
+collapsed) always takes precedence over the route-driven collapse.
+
 ## Shared host components
 
 Use shared components from `@paperclipai/plugin-sdk/ui` when the plugin needs a

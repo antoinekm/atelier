@@ -18,6 +18,7 @@ import { WorktreeBanner } from "./WorktreeBanner";
 import { DevRestartBanner } from "./DevRestartBanner";
 import { StandaloneBrowserControls } from "./StandaloneBrowserControls";
 import { SidebarShell } from "./SidebarShell";
+import { SecondarySidebar } from "./SecondarySidebar";
 import { SidebarAccountMenu } from "./SidebarAccountMenu";
 import { useDialogActions } from "../context/DialogContext";
 import { GeneralSettingsProvider } from "../context/GeneralSettingsContext";
@@ -57,6 +58,7 @@ export function Layout() {
     peeking,
     setPeeking,
     isMobile,
+    setRouteRequestsCollapsed,
   } = useSidebar();
   const { openNewIssue, openOnboarding } = useDialogActions();
   const { togglePanelVisible } = usePanel();
@@ -111,16 +113,21 @@ export function Layout() {
     }),
     [routeSidebarCompanyId, routeSidebarCompanyPrefix],
   );
-  const companySidebar = routeSidebarSlot ? (
+  // Takeover routes (company settings, plugin `routeSidebar`) no longer replace
+  // the app `<Sidebar/>`. Instead the host collapses it to its rail and renders
+  // the contextual sidebar in a second pane (PAP-10695). One resolver drives
+  // both desktop (SecondarySidebar) and mobile (off-canvas drawer).
+  const secondarySidebar = isCompanySettingsRoute ? (
+    <CompanySettingsSidebar />
+  ) : routeSidebarSlot ? (
     <PluginSlotMount
       slot={routeSidebarSlot}
       context={sidebarContext}
       className="h-full w-full"
       missingBehavior="placeholder"
     />
-  ) : (
-    <Sidebar />
-  );
+  ) : null;
+  const hasSecondarySidebar = secondarySidebar != null;
   const { data: health } = useQuery({
     queryKey: queryKeys.health,
     queryFn: () => healthApi.get(),
@@ -135,6 +142,15 @@ export function Layout() {
     queryKey: queryKeys.instance.generalSettings,
     queryFn: () => instanceSettingsApi.getGeneral(),
   }).data?.keyboardShortcuts === true;
+
+  // While a secondary sidebar is shown, ask the app sidebar to default to its
+  // collapsed rail (still peek-able). An explicit user pin always wins — that
+  // precedence lives in SidebarContext. Clearing on cleanup restores the
+  // default when navigating off the takeover route (PAP-10695).
+  useEffect(() => {
+    setRouteRequestsCollapsed(hasSecondarySidebar);
+    return () => setRouteRequestsCollapsed(false);
+  }, [hasSecondarySidebar, setRouteRequestsCollapsed]);
 
   useEffect(() => {
     if (companiesLoading || onboardingTriggered.current) return;
@@ -217,6 +233,11 @@ export function Layout() {
   // the user is still hovering — it should only close when they actually mouse off
   // (PAP-10676).
   const pointerInsidePanel = useRef(false);
+  // When the user explicitly collapses while the pointer is still over the panel,
+  // suppress re-peeking until the pointer actually leaves — otherwise the lingering
+  // hover immediately re-expands the rail and the collapse "doesn't take" until the
+  // mouse moves away (PAP-10676). Re-armed on the next genuine pointer-leave.
+  const suppressPeekRef = useRef(false);
   const clearPeekTimer = useCallback(() => {
     if (peekTimer.current !== null) {
       window.clearTimeout(peekTimer.current);
@@ -235,14 +256,21 @@ export function Layout() {
     clearPeekTimer();
     peekTimer.current = window.setTimeout(() => setPeeking(false), 120);
   }, [clearPeekTimer, setPeeking]);
+  // Tracked even while expanded so that, at the moment of collapse, we know
+  // whether the pointer is over the panel and should suppress the re-peek.
   const handlePanelPointerEnter = useCallback(() => {
     pointerInsidePanel.current = true;
-    openPeek();
-  }, [openPeek]);
+    if (collapsed && !suppressPeekRef.current) openPeek();
+  }, [collapsed, openPeek]);
   const handlePanelPointerLeave = useCallback(() => {
     pointerInsidePanel.current = false;
+    suppressPeekRef.current = false; // pointer left — re-arm peek for the next hover
     closePeek();
   }, [closePeek]);
+  const handlePanelFocus = useCallback(() => {
+    if (suppressPeekRef.current) return;
+    openPeekImmediate();
+  }, [openPeekImmediate]);
   // Close on focus leaving the panel only when the pointer isn't hovering it.
   // Clicking a rail/peek nav item moves focus to <main> on navigation; if the
   // mouse is still over the flyout we keep it open until the pointer leaves.
@@ -253,6 +281,23 @@ export function Layout() {
 
   // Tidy up any pending peek timer on unmount.
   useEffect(() => clearPeekTimer, [clearPeekTimer]);
+
+  // An explicit collapse must be atomic: cancel any in-flight/active peek, and if
+  // the pointer is still over the panel suppress re-peeking until it leaves, so the
+  // rail doesn't immediately re-expand under the lingering hover (PAP-10676).
+  const wasCollapsed = useRef(collapsed);
+  useEffect(() => {
+    if (collapsed !== wasCollapsed.current) {
+      if (collapsed) {
+        clearPeekTimer();
+        setPeeking(false);
+        suppressPeekRef.current = pointerInsidePanel.current;
+      } else {
+        suppressPeekRef.current = false;
+      }
+      wasCollapsed.current = collapsed;
+    }
+  }, [collapsed, clearPeekTimer, setPeeking]);
 
   // Intentionally do NOT close the peek on navigation: clicking a nav item means
   // the pointer is still over the flyout, so it should stay open until the user
@@ -436,11 +481,7 @@ export function Layout() {
           >
             <div className="flex flex-1 min-h-0 overflow-hidden">
               <div className="w-60 shrink-0 overflow-hidden">
-                {isCompanySettingsRoute ? (
-                  <CompanySettingsSidebar />
-                ) : (
-                  companySidebar
-                )}
+                {hasSecondarySidebar ? secondarySidebar : <Sidebar />}
               </div>
             </div>
             <SidebarAccountMenu
@@ -454,17 +495,13 @@ export function Layout() {
             collapsed={collapsed}
             peeking={peeking}
             resizable
-            onPanelMouseEnter={collapsed ? handlePanelPointerEnter : undefined}
-            onPanelMouseLeave={collapsed ? handlePanelPointerLeave : undefined}
-            onPanelFocusCapture={collapsed ? openPeekImmediate : undefined}
+            onPanelMouseEnter={handlePanelPointerEnter}
+            onPanelMouseLeave={handlePanelPointerLeave}
+            onPanelFocusCapture={collapsed ? handlePanelFocus : undefined}
             onPanelBlurCapture={collapsed ? handlePanelBlur : undefined}
           >
             <div className="flex flex-1 min-h-0">
-              {isCompanySettingsRoute ? (
-                <CompanySettingsSidebar />
-              ) : (
-                companySidebar
-              )}
+              <Sidebar />
             </div>
             <SidebarAccountMenu
               deploymentMode={health?.deploymentMode}
@@ -472,6 +509,10 @@ export function Layout() {
             />
           </SidebarShell>
         )}
+
+        {!isMobile && hasSecondarySidebar ? (
+          <SecondarySidebar>{secondarySidebar}</SecondarySidebar>
+        ) : null}
 
         <div className={cn("flex min-w-0 flex-col", isMobile ? "w-full" : "h-full flex-1")}>
           <div

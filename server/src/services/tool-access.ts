@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, ne } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   agents,
@@ -1855,6 +1855,20 @@ export function toolAccessService(db: Db, options: ToolAccessServiceOptions = {}
       if (!existing) throw notFound("Tool application not found");
       await assertOptionalPlugin(input.pluginId);
       await assertOptionalAgent(existing.companyId, input.ownerAgentId, "Tool application owner agent");
+      if (input.name && input.name !== existing.name) {
+        const [duplicate] = await db
+          .select({ id: toolApplications.id })
+          .from(toolApplications)
+          .where(
+            and(
+              eq(toolApplications.companyId, existing.companyId),
+              eq(toolApplications.name, input.name),
+              ne(toolApplications.id, applicationId),
+            ),
+          )
+          .limit(1);
+        if (duplicate) throw conflict("A tool access record with that name already exists");
+      }
       const [row] = await db
         .update(toolApplications)
         .set({

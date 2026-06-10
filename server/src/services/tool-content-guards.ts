@@ -18,6 +18,10 @@ const PROMPT_INJECTION_PATTERNS: Array<{ code: string; re: RegExp }> = [
   { code: "secret_exfiltration", re: /\b(exfiltrate|leak|steal|send)\b.{0,40}\b(secret|token|api[-_ ]?key|credential)s?\b/i },
 ];
 
+type ToolActionSigningSecretEnv = Partial<
+  Record<"PAPERCLIP_TOOL_ACTION_SIGNING_SECRET" | "PAPERCLIP_AGENT_JWT_SECRET" | "BETTER_AUTH_SECRET", string | undefined>
+>;
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const proto = Object.getPrototypeOf(value);
@@ -40,12 +44,7 @@ function scanPromptInjection(value: unknown): string[] {
     .map((pattern) => pattern.code);
 }
 
-export function resolveToolActionSigningSecret(
-  env: Partial<Pick<
-    NodeJS.ProcessEnv,
-    "PAPERCLIP_TOOL_ACTION_SIGNING_SECRET" | "PAPERCLIP_AGENT_JWT_SECRET" | "BETTER_AUTH_SECRET"
-  >> = process.env,
-) {
+export function resolveToolActionSigningSecret(env: ToolActionSigningSecretEnv = process.env as ToolActionSigningSecretEnv) {
   const secret = env.PAPERCLIP_TOOL_ACTION_SIGNING_SECRET?.trim();
   if (!secret) {
     throw new Error("PAPERCLIP_TOOL_ACTION_SIGNING_SECRET is required for signed tool action approvals");

@@ -252,6 +252,17 @@ vi.mock("../components/IssueChatThread", () => ({
   },
 }));
 
+// PAP-139: IssueDetail picks the thread variant by the Conference Room Chat
+// flag. These suites assert against the NUX thread, so seed the flag ON and
+// stub the classic fork (its real import chain pulls sandpack into jsdom).
+vi.mock("../hooks/useConferenceRoomChatEnabled", () => ({
+  useConferenceRoomChatEnabled: () => ({ enabled: true, loaded: true }),
+}));
+
+vi.mock("../components/IssueChatThreadClassic", () => ({
+  IssueChatThreadClassic: () => <div data-testid="issue-chat-thread-classic">Classic chat thread</div>,
+}));
+
 vi.mock("../components/IssueDocumentsSection", () => ({
   IssueDocumentsSection: () => <div>Documents</div>,
 }));

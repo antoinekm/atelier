@@ -94,6 +94,8 @@ export function writeAgentSortMode(storageKey: string, sortMode: AgentSidebarSor
 // Leadership roles surface at the top of each sibling group so the company's
 // lead (typically the freshly-hired CEO) is visible without scrolling the
 // sidebar (PAP-52). Anything outside this list falls back to alphabetical.
+// Opt-in via `leadershipFirst` — gated on the Conference Room Chat experimental
+// flag (PAP-139); the default keeps master's plain alphabetical sibling order.
 const ROLE_SORT_PRIORITY: Record<string, number> = {
   ceo: 0,
   cto: 1,
@@ -106,7 +108,15 @@ function rolePriority(agent: Agent): number {
   return ROLE_SORT_PRIORITY[role] ?? Number.MAX_SAFE_INTEGER;
 }
 
-export function sortAgentsByDefaultSidebarOrder(agents: Agent[]): Agent[] {
+export interface AgentSidebarOrderOptions {
+  /** Surface leadership roles (CEO/CTO/...) first within each sibling group. */
+  leadershipFirst?: boolean;
+}
+
+export function sortAgentsByDefaultSidebarOrder(
+  agents: Agent[],
+  options?: AgentSidebarOrderOptions,
+): Agent[] {
   if (agents.length === 0) return [];
 
   const byId = new Map(agents.map((agent) => [agent.id, agent]));
@@ -118,10 +128,13 @@ export function sortAgentsByDefaultSidebarOrder(agents: Agent[]): Agent[] {
     childrenOf.set(parentId, siblings);
   }
 
+  const leadershipFirst = options?.leadershipFirst === true;
   for (const siblings of childrenOf.values()) {
     siblings.sort((left, right) => {
-      const priorityDiff = rolePriority(left) - rolePriority(right);
-      if (priorityDiff !== 0) return priorityDiff;
+      if (leadershipFirst) {
+        const priorityDiff = rolePriority(left) - rolePriority(right);
+        if (priorityDiff !== 0) return priorityDiff;
+      }
       return left.name.localeCompare(right.name);
     });
   }
@@ -139,10 +152,14 @@ export function sortAgentsByDefaultSidebarOrder(agents: Agent[]): Agent[] {
   return sorted;
 }
 
-export function sortAgentsByStoredOrder(agents: Agent[], orderedIds: string[]): Agent[] {
+export function sortAgentsByStoredOrder(
+  agents: Agent[],
+  orderedIds: string[],
+  options?: AgentSidebarOrderOptions,
+): Agent[] {
   if (agents.length === 0) return [];
 
-  const defaultSorted = sortAgentsByDefaultSidebarOrder(agents);
+  const defaultSorted = sortAgentsByDefaultSidebarOrder(agents, options);
   if (orderedIds.length === 0) return defaultSorted;
 
   const byId = new Map(defaultSorted.map((agent) => [agent.id, agent]));

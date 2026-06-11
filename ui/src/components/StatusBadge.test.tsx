@@ -1,9 +1,21 @@
 // @vitest-environment node
 
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
-import { IssueStatusBadge, IssueStatusGlyph } from "./StatusBadge";
-import { brandChipBadge, issueStatusColor } from "../lib/status-colors";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { IssueStatusBadge, IssueStatusGlyph, StatusBadge } from "./StatusBadge";
+import { brandChipBadge, issueStatusColor, statusBadgeClassic } from "../lib/status-colors";
+
+// The brand chips ship behind the Conference Room Chat experimental flag
+// (PAP-139). These suites were written against the NUX UI, so the flag is
+// seeded ON; the classic-fallback suite below flips it OFF.
+const conferenceRoomChatFlag = vi.hoisted(() => ({ enabled: true }));
+vi.mock("../hooks/useConferenceRoomChatEnabled", () => ({
+  useConferenceRoomChatEnabled: () => ({ enabled: conferenceRoomChatFlag.enabled, loaded: true }),
+}));
+
+afterEach(() => {
+  conferenceRoomChatFlag.enabled = true;
+});
 
 /**
  * PAP-99 (PAP-95e): issue/task status chips adopt the PAP-75 brand palette and
@@ -58,6 +70,29 @@ describe("IssueStatusBadge", () => {
   it("falls back to the gray token for unknown statuses", () => {
     const html = renderToStaticMarkup(<IssueStatusBadge status="mystery" />);
     expect(html).toContain(brandChipBadge.gray.split(" ")[0]);
+  });
+});
+
+describe("IssueStatusBadge — Conference Room Chat flag OFF (PAP-139)", () => {
+  it("falls back to the plain master badge (no brand chip, no glyph)", () => {
+    conferenceRoomChatFlag.enabled = false;
+    const html = renderToStaticMarkup(<IssueStatusBadge status="in_progress" />);
+    expect(html).not.toContain("<svg");
+    expect(html).not.toContain("#DBEAFE");
+    // Master's StatusBadge markup with master's hues (in_progress → yellow).
+    expect(html).toBe(renderToStaticMarkup(<StatusBadge status="in_progress" />));
+    expect(html).toContain(statusBadgeClassic.in_progress!.split(" ")[0]); // bg-yellow-100
+  });
+
+  it("keeps master's blue todo / yellow in_progress palette on StatusBadge", () => {
+    conferenceRoomChatFlag.enabled = false;
+    expect(renderToStaticMarkup(<StatusBadge status="todo" />)).toContain("bg-blue-100");
+    expect(renderToStaticMarkup(<StatusBadge status="in_progress" />)).toContain("bg-yellow-100");
+  });
+
+  it("uses the brand hues on StatusBadge when the flag is ON", () => {
+    expect(renderToStaticMarkup(<StatusBadge status="todo" />)).toContain("bg-amber-100");
+    expect(renderToStaticMarkup(<StatusBadge status="in_progress" />)).toContain("bg-blue-100");
   });
 });
 

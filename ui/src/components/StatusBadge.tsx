@@ -1,6 +1,7 @@
 import { cn } from "../lib/utils";
 import {
   statusBadge,
+  statusBadgeClassic,
   statusBadgeDefault,
   agentStatusColor,
   agentStatusColorDefault,
@@ -11,13 +12,19 @@ import {
   issueStatusColor,
   issueStatusColorDefault,
 } from "../lib/status-colors";
+import { useConferenceRoomChatEnabled } from "../hooks/useConferenceRoomChatEnabled";
 
 export function StatusBadge({ status }: { status: string }) {
+  // PAP-75 brand hues for issue statuses (todo/in_progress) ship behind the
+  // Conference Room Chat flag (PAP-139); OFF keeps master's palette. Non-issue
+  // entries are identical in both records.
+  const { enabled: conferenceRoomChatEnabled } = useConferenceRoomChatEnabled();
+  const palette = conferenceRoomChatEnabled ? statusBadge : statusBadgeClassic;
   return (
     <span
       className={cn(
         "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap shrink-0",
-        statusBadge[status] ?? statusBadgeDefault
+        palette[status] ?? statusBadgeDefault
       )}
     >
       {status.replace(/_/g, " ")}
@@ -143,7 +150,13 @@ export function IssueStatusGlyph({ status }: { status: string }) {
  * badges are unaffected.
  */
 export function IssueStatusBadge({ status }: { status: string }) {
+  // Conference Room Chat flag OFF (PAP-139): fall back to the plain master
+  // badge — same markup master rendered at this badge's call sites.
+  const { enabled: conferenceRoomChatEnabled } = useConferenceRoomChatEnabled();
   const color = issueStatusColor[status] ?? issueStatusColorDefault;
+  if (!conferenceRoomChatEnabled) {
+    return <StatusBadge status={status} />;
+  }
   return (
     <span
       className={cn(

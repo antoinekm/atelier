@@ -17,6 +17,7 @@ import {
   Play,
   Plus,
   Save,
+  Trash2,
 } from "lucide-react";
 import { agentsApi } from "../api/agents";
 import { accessApi } from "../api/access";
@@ -59,7 +60,6 @@ import { cn, relativeTime } from "../lib/utils";
 import { Link, useNavigate, useParams, useSearchParams } from "@/lib/router";
 import { StageHealthWarnings } from "../components/PipelineHealthWarnings";
 
-type SettingsTab = "stages" | "guidance";
 type StageSectionKey = "overview" | "instructions" | "secrets" | "runs" | "activity" | "history";
 type ApproverKind = "any_human" | "user" | "agent";
 
@@ -88,11 +88,6 @@ type StageConfig = {
   requireRejectReason?: boolean;
   [key: string]: unknown;
 };
-
-const TAB_LABELS: Array<{ id: SettingsTab; label: string }> = [
-  { id: "stages", label: "Stages" },
-  { id: "guidance", label: "Guidance" },
-];
 
 const STAGE_NAV_GROUPS: Array<{
   label: string;
@@ -124,8 +119,6 @@ const STAGE_SECTION_TITLES: Record<StageSectionKey, string> = {
   activity: "Activity",
   history: "History",
 };
-
-const PIPELINE_GUIDANCE_KEY = "guidance";
 
 /** Per-stage instructions document key — keyed by stage id so it survives renames. */
 function stageInstructionsKey(stageId: string) {
@@ -455,7 +448,6 @@ export function PipelineSettings() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<SettingsTab>("stages");
   const [activeStageSection, setActiveStageSection] = useState<StageSectionKey>("overview");
   const [selectedStageId, setSelectedStageId] = useState<string | null>(null);
   const [stageName, setStageName] = useState("");
@@ -471,7 +463,8 @@ export function PipelineSettings() {
   const [requestChangesTarget, setRequestChangesTarget] = useState("");
   const [requireRejectReason, setRequireRejectReason] = useState(true);
   const [transitionTargets, setTransitionTargets] = useState<Set<string>>(() => new Set());
-  const [guidanceBody, setGuidanceBody] = useState("");
+  const [deleteStageDialogOpen, setDeleteStageDialogOpen] = useState(false);
+  const [deleteMoveTargetStageId, setDeleteMoveTargetStageId] = useState("");
   const [pipelineName, setPipelineName] = useState("");
   const [pipelineDescription, setPipelineDescription] = useState("");
   const [archiveConfirmation, setArchiveConfirmation] = useState("");
@@ -480,21 +473,6 @@ export function PipelineSettings() {
   const pipelineQuery = useQuery({
     queryKey: pipelineId ? queryKeys.pipelines.detail(pipelineId) : ["pipelines", "detail", "none"],
     queryFn: () => pipelinesApi.get(pipelineId!),
-    enabled: !!pipelineId && !!selectedCompanyId,
-  });
-
-  const guidanceQuery = useQuery({
-    queryKey: pipelineId
-      ? queryKeys.pipelines.document(pipelineId, PIPELINE_GUIDANCE_KEY)
-      : ["pipelines", "document", "none"],
-    queryFn: async () => {
-      try {
-        return await pipelinesApi.getDocument(pipelineId!, PIPELINE_GUIDANCE_KEY);
-      } catch (error) {
-        if (error instanceof ApiError && error.status === 404) return null;
-        throw error;
-      }
-    },
     enabled: !!pipelineId && !!selectedCompanyId,
   });
 
@@ -519,10 +497,6 @@ export function PipelineSettings() {
   const pipeline = pipelineQuery.data ?? null;
   const stages = useMemo(() => sortedStages(pipeline), [pipeline]);
   const selectedStage = stages.find((stage) => stage.id === selectedStageId) ?? stages[0] ?? null;
-  const guidanceDocument = guidanceQuery.data ?? null;
-  const savedGuidanceBody = guidanceDocument
-    ? guidanceDocument.revision?.body ?? guidanceDocument.document?.latestBody ?? ""
-    : "";
 
   const instructionsKey = selectedStage ? stageInstructionsKey(selectedStage.id) : null;
   const instructionsQuery = useQuery({
@@ -669,8 +643,9 @@ export function PipelineSettings() {
   }, [selectedStage?.id, savedInstructionsBody, savedInstructionsVariables]);
 
   useEffect(() => {
-    setGuidanceBody(savedGuidanceBody);
-  }, [savedGuidanceBody]);
+    setDeleteStageDialogOpen(false);
+    setDeleteMoveTargetStageId(stages.find((stage) => stage.id !== selectedStage?.id)?.id ?? "");
+  }, [selectedStage?.id, stages]);
 
   useEffect(() => {
     if (!pipeline) return;
@@ -828,20 +803,29 @@ export function PipelineSettings() {
     },
   });
 
-  const saveGuidance = useMutation({
-    mutationFn: () =>
-      pipelinesApi.upsertDocument(pipelineId!, PIPELINE_GUIDANCE_KEY, {
-        title: "Pipeline guidance",
-        body: guidanceBody.trim(),
-      }),
+  const deleteStage = useMutation({
+    mutationFn: async () => {
+      if (!pipelineId || !selectedStage) return null;
+      return pipelinesApi.deleteStage(pipelineId, selectedStage.id, {
+        moveCasesToStageId: deleteMoveTargetStageId || null,
+      });
+    },
     onSuccess: async () => {
-      if (pipelineId) {
-        await queryClient.invalidateQueries({
-          queryKey: queryKeys.pipelines.document(pipelineId, PIPELINE_GUIDANCE_KEY),
-        });
-      }
+      const nextStageId = deleteMoveTargetStageId || (stages.find((stage) => stage.id !== selectedStage?.id)?.id ?? null);
+      setDeleteStageDialogOpen(false);
+      setSelectedStageId(nextStageId);
       await refreshPipeline();
-      pushToast({ title: "Guidance saved", tone: "success" });
+      if (selectedCompanyId) {
+        await queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.list(selectedCompanyId) });
+      }
+      pushToast({ title: "Stage deleted", tone: "success" });
+    },
+    onError: (error) => {
+      pushToast({
+        title: "Failed to delete stage",
+        body: error instanceof Error ? error.message : "Paperclip could not delete the stage.",
+        tone: "error",
+      });
     },
   });
 
@@ -1013,29 +997,7 @@ export function PipelineSettings() {
         ) : null}
       </form>
 
-      <div className="flex border-b border-border" role="tablist" aria-label="Pipeline settings tabs">
-        {TAB_LABELS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            data-tab-value={tab.id}
-            aria-selected={activeTab === tab.id}
-            className={cn(
-              "border-b-2 px-4 py-2 text-sm font-semibold",
-              activeTab === tab.id
-                ? "border-foreground text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground",
-            )}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {activeTab === "stages" ? (
-        <div className="space-y-6">
+      <div className="space-y-6">
           {stages.length === 0 ? (
             <EmptyState
               icon={GitBranch}
@@ -1117,21 +1079,34 @@ export function PipelineSettings() {
                       {STAGE_SECTION_TITLES[activeStageSection]}
                     </h2>
                     {activeStageSection === "overview" ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        className={cn(
-                          "h-8 w-8",
-                          newEntriesDisabled &&
-                            "border-amber-500/50 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300",
-                        )}
-                        title={newEntriesDisabled ? "Resume new entries" : "Pause new entries"}
-                        aria-label={newEntriesDisabled ? "Resume new entries" : "Pause new entries"}
-                        onClick={() => setNewEntriesDisabled((value) => !value)}
-                      >
-                        {newEntriesDisabled ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className={cn(
+                            "h-8 w-8",
+                            newEntriesDisabled &&
+                              "border-amber-500/50 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300",
+                          )}
+                          title={newEntriesDisabled ? "Resume new entries" : "Pause new entries"}
+                          aria-label={newEntriesDisabled ? "Resume new entries" : "Pause new entries"}
+                          onClick={() => setNewEntriesDisabled((value) => !value)}
+                        >
+                          {newEntriesDisabled ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive"
+                          title={`Delete ${selectedStage.name}`}
+                          aria-label={`Delete ${selectedStage.name}`}
+                          onClick={() => setDeleteStageDialogOpen(true)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     ) : null}
                   </div>
 
@@ -1430,36 +1405,66 @@ export function PipelineSettings() {
               ) : null}
             </form>
           ) : null}
-        </div>
-      ) : null}
-
-      {activeTab === "guidance" ? (
-        <form
-          className="max-w-3xl space-y-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            saveGuidance.mutate();
-          }}
-        >
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Pipeline guidance</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Plain-language instructions agents and operators can use when handling this pipeline.
-            </p>
+      </div>
+      <Dialog
+        open={deleteStageDialogOpen}
+        onOpenChange={setDeleteStageDialogOpen}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete stage</DialogTitle>
+            <DialogDescription>
+              Delete {selectedStage?.name ?? "this stage"} from this pipeline. Connected stage transitions are removed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {stages.length > 1 ? (
+              <label className="block space-y-1.5 text-sm font-medium">
+                <span>Move existing items to</span>
+                <select
+                  aria-label="Move existing items to"
+                  value={deleteMoveTargetStageId}
+                  onChange={(event) => setDeleteMoveTargetStageId(event.target.value)}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  {stages
+                    .filter((stage) => stage.id !== selectedStage?.id)
+                    .map((stage) => (
+                      <option key={stage.id} value={stage.id}>{stage.name}</option>
+                    ))}
+                </select>
+              </label>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                This is the only stage. Deletion succeeds only if it has no items.
+              </p>
+            )}
+            {deleteStage.error ? (
+              <p className="text-sm text-destructive">{deleteStage.error.message}</p>
+            ) : null}
           </div>
-          <Textarea
-            value={guidanceBody}
-            onChange={(event) => setGuidanceBody(event.target.value)}
-            rows={12}
-            placeholder="Write guidance for how work should enter, move through, and leave this pipeline."
-          />
-          {saveGuidance.error ? <p className="text-sm text-destructive">{saveGuidance.error.message}</p> : null}
-          <Button type="submit" disabled={saveGuidance.isPending || !guidanceBody.trim()}>
-            <Save className="h-4 w-4" />
-            {saveGuidance.isPending ? "Saving..." : "Save guidance"}
-          </Button>
-        </form>
-      ) : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteStageDialogOpen(false)}
+              disabled={deleteStage.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deleteStage.isPending || (stages.length > 1 && !deleteMoveTargetStageId)}
+              onClick={() => deleteStage.mutate()}
+            >
+              <Trash2 className="h-4 w-4" />
+              {deleteStage.isPending ? "Deleting..." : "Delete stage"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog
         open={archiveDialogOpen}
         onOpenChange={(open) => {
@@ -1471,7 +1476,7 @@ export function PipelineSettings() {
           <DialogHeader>
             <DialogTitle>Archive pipeline</DialogTitle>
             <DialogDescription>
-              Archiving hides this pipeline from everyday views. Its stages, guidance, and items are kept and can be restored later.
+              Archiving hides this pipeline from everyday views. Its stages and items are kept and can be restored later.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">

@@ -407,6 +407,16 @@ export const pipelinesApi = {
     stageId: string,
     data: { key?: string; name?: string; kind?: string; position?: number; config?: Record<string, unknown> },
   ) => api.patch<PipelineStage>(`/pipelines/${pipelineId}/stages/${stageId}`, data),
+  deleteStage: (
+    pipelineId: string,
+    stageId: string,
+    data?: { moveCasesToStageId?: string | null },
+  ) => {
+    const params = new URLSearchParams();
+    if (data?.moveCasesToStageId) params.set("moveCasesToStageId", data.moveCasesToStageId);
+    const qs = params.toString();
+    return api.delete<{ deleted: boolean }>(`/pipelines/${pipelineId}/stages/${stageId}${qs ? `?${qs}` : ""}`);
+  },
   setTransitions: (
     pipelineId: string,
     data: { transitions: PipelineTransitionEdge[]; enforceTransitions?: boolean },

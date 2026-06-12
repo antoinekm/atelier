@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Agent } from "@paperclipai/shared";
 import type { CompanyUserDirectoryResponse } from "../api/access";
-import type { PipelineDetail, PipelineDocumentPayload } from "../api/pipelines";
+import type { PipelineDetail } from "../api/pipelines";
 import { agentsApi } from "../api/agents";
 import { accessApi } from "../api/access";
 import { pipelinesApi } from "../api/pipelines";
@@ -125,14 +125,6 @@ function makePipeline(): PipelineDetail {
   };
 }
 
-function makeGuidanceDocument(): PipelineDocumentPayload {
-  return {
-    link: { key: "guidance", documentId: "doc-1" },
-    document: { id: "doc-1", title: "Pipeline guidance", latestBody: "Be clear." },
-    revision: { body: "Be clear.", title: "Pipeline guidance" },
-  };
-}
-
 function renderSettings() {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -177,6 +169,7 @@ describe("PipelineSettings", () => {
     vi.spyOn(pipelinesApi, "get").mockResolvedValue(makePipeline());
     vi.spyOn(pipelinesApi, "updateStage").mockResolvedValue(makePipeline().stages[0]!);
     vi.spyOn(pipelinesApi, "setTransitions").mockResolvedValue({ transitions: [] });
+    vi.spyOn(pipelinesApi, "deleteStage").mockResolvedValue({ deleted: true });
     vi.spyOn(pipelinesApi, "createStage").mockResolvedValue({
       id: "stage-3",
       pipelineId: "pipeline-1",
@@ -186,19 +179,18 @@ describe("PipelineSettings", () => {
       position: 101,
       config: { variables: [] },
     });
-    // Key-aware: guidance has a document; per-stage instructions docs 404 by
-    // default so the editor falls back to legacy `config.whatHappensHere`.
-    vi.spyOn(pipelinesApi, "getDocument").mockImplementation(async (_pipelineId, key) => {
-      if (key === "guidance") return makeGuidanceDocument();
+    // Per-stage instructions docs 404 by default so the editor falls back to
+    // legacy `config.whatHappensHere`.
+    vi.spyOn(pipelinesApi, "getDocument").mockImplementation(async () => {
       throw new ApiError("Pipeline document not found", 404, null);
     });
     vi.spyOn(pipelinesApi, "upsertDocument").mockResolvedValue({
-      document: makeGuidanceDocument().document,
-      revision: { body: "Updated.", title: "Pipeline guidance" },
+      document: { id: "doc-stage", title: "Stage instructions", latestBody: "Updated." },
+      revision: { body: "Updated.", title: "Stage instructions" },
     });
     vi.spyOn(pipelinesApi, "listDocumentRevisions").mockResolvedValue([]);
     vi.spyOn(pipelinesApi, "restoreDocumentRevision").mockResolvedValue({
-      document: makeGuidanceDocument().document,
+      document: { id: "doc-stage", title: "Stage instructions", latestBody: "Restored body." },
       revision: {
         id: "rev-restored",
         companyId: "company-1",
@@ -238,13 +230,15 @@ describe("PipelineSettings", () => {
     document.body.innerHTML = "";
   });
 
-  it("renders only Stages and Guidance top-level tabs", async () => {
+  it("does not render top-level guidance settings", async () => {
     const { container, root, queryClient } = renderSettings();
     await flushQueries();
 
     const tabLabels = Array.from(container.querySelectorAll("[data-tab-value]")).map((tab) => tab.textContent);
-    expect(tabLabels).toEqual(["Stages", "Guidance"]);
-    expect(tabLabels).not.toContain("Advanced");
+    expect(tabLabels).toEqual([]);
+    expect(container.textContent).not.toContain("Guidance");
+    expect(container.textContent).not.toContain("Pipeline guidance");
+    expect(pipelinesApi.getDocument).not.toHaveBeenCalledWith("pipeline-1", "guidance");
 
     flushSync(() => {
       root.unmount();
@@ -334,6 +328,39 @@ describe("PipelineSettings", () => {
     });
 
     expect(archiveButton?.disabled).toBe(false);
+
+    flushSync(() => {
+      root.unmount();
+    });
+    queryClient.clear();
+  });
+
+  it("deletes the selected stage and moves existing items to another stage", async () => {
+    const { container, root, queryClient } = renderSettings();
+    await flushQueries();
+
+    const deleteButton = container.querySelector<HTMLButtonElement>('button[aria-label="Delete Intake"]')!;
+    expect(deleteButton).toBeTruthy();
+    flushSync(() => {
+      deleteButton.click();
+    });
+    await flushQueries();
+
+    const moveTarget = document.body.querySelector<HTMLSelectElement>('[aria-label="Move existing items to"]')!;
+    expect(moveTarget.value).toBe("stage-2");
+    const confirmButton = Array.from(document.body.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Delete stage"),
+    ) as HTMLButtonElement | undefined;
+    expect(confirmButton).toBeTruthy();
+
+    flushSync(() => {
+      confirmButton!.click();
+    });
+    await flushQueries();
+
+    expect(pipelinesApi.deleteStage).toHaveBeenCalledWith("pipeline-1", "stage-1", {
+      moveCasesToStageId: "stage-2",
+    });
 
     flushSync(() => {
       root.unmount();

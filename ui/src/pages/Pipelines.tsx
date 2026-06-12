@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowUpDown, BookOpenText, Check, ChevronDown, ChevronRight, ChevronUp, GitBranch, Hexagon, Info, List, ListTree, Loader2, MessageSquare, MoreHorizontal, Plus, Search, Trash2, X } from "lucide-react";
+import { AlertTriangle, ArrowUpDown, BookOpenText, Check, ChevronDown, ChevronRight, ChevronUp, GitBranch, Hexagon, Info, List, ListTree, Loader2, MessageSquare, MoreHorizontal, Plus, Search, Settings, Trash2, X } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -1289,14 +1289,16 @@ function PipelineBoard({ pipelineId }: { pipelineId: string }) {
           {pipeline.description ? <p className="mt-1 text-sm text-muted-foreground">{pipeline.description}</p> : null}
           <p className="mt-1 text-xs text-muted-foreground">{cases.length} total item{cases.length === 1 ? "" : "s"}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" asChild>
-            <Link to={`/pipelines/${pipelineId}/settings`}>Settings</Link>
-          </Button>
+        <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
           <Button asChild>
             <Link to={`/pipelines/${pipelineId}/add`}>
               <Plus className="mr-2 h-4 w-4" />
               Add items
+            </Link>
+          </Button>
+          <Button variant="outline" size="icon" asChild>
+            <Link to={`/pipelines/${pipelineId}/settings`} aria-label="Pipeline settings" title="Pipeline settings">
+              <Settings className="h-4 w-4" />
             </Link>
           </Button>
         </div>
@@ -1306,12 +1308,6 @@ function PipelineBoard({ pipelineId }: { pipelineId: string }) {
         warnings={healthQuery.data?.warnings ?? []}
         onSelectStage={(stageId) => navigate(`/pipelines/${pipelineId}/settings?stage=${stageId}`)}
       />
-
-      {guardrailsActive ? (
-        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-300/30 dark:bg-amber-400/10 dark:text-amber-200">
-          Items follow this pipeline's normal flow. Moves that skip it ask for a reason.
-        </p>
-      ) : null}
 
       <DndContext
         onDragStart={handleDragStart}

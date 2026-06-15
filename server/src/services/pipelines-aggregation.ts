@@ -9,6 +9,7 @@ import {
   pipelineCases,
   pipelineStages,
   pipelines,
+  routines,
 } from "@paperclipai/db";
 import { notFound } from "../errors.js";
 
@@ -77,6 +78,28 @@ function reviewStageAwaitsCallerSql(caller: AttentionCaller) {
 
 function boundedLimit(limit: number | undefined, fallback: number, max: number) {
   return Math.min(max, Math.max(1, Math.floor(limit ?? fallback)));
+}
+
+function payloadString(value: unknown, key: string) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = (value as Record<string, unknown>)[key];
+  return typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : null;
+}
+
+function stageAutomationFromConfig(stage: typeof pipelineStages.$inferSelect) {
+  const config = stage.config && typeof stage.config === "object" && !Array.isArray(stage.config)
+    ? stage.config as Record<string, unknown>
+    : {};
+  const onEnter = config.onEnter && typeof config.onEnter === "object" && !Array.isArray(config.onEnter)
+    ? config.onEnter as Record<string, unknown>
+    : null;
+  if (onEnter?.type !== "run_routine" || typeof onEnter.routineId !== "string" || !onEnter.routineId.trim()) {
+    return null;
+  }
+  return {
+    id: typeof onEnter.id === "string" && onEnter.id.trim() ? onEnter.id.trim() : `${stage.id}:on_enter`,
+    routineId: onEnter.routineId.trim(),
+  };
 }
 
 export async function listPipelineAttention(
@@ -293,14 +316,76 @@ export async function listCompanyCaseEvents(
     .offset(offset);
 
   const hasMore = rows.length > limit;
-  const items = (hasMore ? rows.slice(0, limit) : rows).map((row) => ({
-    ...row.event,
-    case: row.case,
-    pipeline: row.pipeline,
-    fromStage: row.fromStage?.id ? row.fromStage : null,
-    toStage: row.toStage?.id ? row.toStage : null,
-    actorAgent: row.actorAgent?.id ? row.actorAgent : null,
-  }));
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  const automationRows = pageRows.filter((row) =>
+    row.event.type === "automation_executed" || row.event.type === "automation_failed"
+  );
+  const routineIds = [...new Set(automationRows
+    .map((row) => payloadString(row.event.payload, "routineId"))
+    .filter((id): id is string => Boolean(id)))];
+  const issueIds = [...new Set(automationRows
+    .map((row) => payloadString(row.event.payload, "issueId"))
+    .filter((id): id is string => Boolean(id)))];
+  const automationPipelineIds = [...new Set(automationRows.map((row) => row.pipeline.id))];
+  const [routineRows, issueRowsForEvents, pipelineStageRows] = await Promise.all([
+    routineIds.length > 0
+      ? db
+          .select({ id: routines.id, title: routines.title })
+          .from(routines)
+          .where(and(eq(routines.companyId, input.companyId), inArray(routines.id, routineIds)))
+      : Promise.resolve([]),
+    issueIds.length > 0
+      ? db
+          .select({ id: issues.id, identifier: issues.identifier, title: issues.title, status: issues.status })
+          .from(issues)
+          .where(and(eq(issues.companyId, input.companyId), inArray(issues.id, issueIds)))
+      : Promise.resolve([]),
+    automationPipelineIds.length > 0
+      ? db
+          .select()
+          .from(pipelineStages)
+          .where(inArray(pipelineStages.pipelineId, automationPipelineIds))
+      : Promise.resolve([]),
+  ]);
+  const routinesById = new Map(routineRows.map((routine) => [routine.id, routine]));
+  const issuesById = new Map(issueRowsForEvents.map((issue) => [issue.id, issue]));
+  const stagesByAutomationId = new Map<string, typeof pipelineStages.$inferSelect>();
+  const stagesByRoutineId = new Map<string, typeof pipelineStages.$inferSelect>();
+  for (const stage of pipelineStageRows) {
+    const automation = stageAutomationFromConfig(stage);
+    if (!automation) continue;
+    stagesByAutomationId.set(automation.id, stage);
+    stagesByRoutineId.set(automation.routineId, stage);
+  }
+  const items = pageRows.map((row) => {
+    const routineId = payloadString(row.event.payload, "routineId");
+    const issueId = payloadString(row.event.payload, "issueId");
+    const automationId = payloadString(row.event.payload, "automationId");
+    const automationStage = (
+      (automationId ? stagesByAutomationId.get(automationId) : undefined) ??
+      (routineId ? stagesByRoutineId.get(routineId) : undefined)
+    );
+    const routine = routineId ? routinesById.get(routineId) ?? null : null;
+    const issue = issueId ? issuesById.get(issueId) ?? null : null;
+    return {
+      ...row.event,
+      case: row.case,
+      pipeline: row.pipeline,
+      fromStage: row.fromStage?.id ? row.fromStage : null,
+      toStage: row.toStage?.id ? row.toStage : null,
+      actorAgent: row.actorAgent?.id ? row.actorAgent : null,
+      automation: row.event.type === "automation_executed" || row.event.type === "automation_failed"
+        ? {
+            routine: routine ? { id: routine.id, title: routine.title } : null,
+            issue: issue ? { id: issue.id, identifier: issue.identifier, title: issue.title, status: issue.status } : null,
+            routineRunId: payloadString(row.event.payload, "routineRunId"),
+            stage: automationStage
+              ? { id: automationStage.id, key: automationStage.key, name: automationStage.name, kind: automationStage.kind }
+              : null,
+          }
+        : undefined,
+    };
+  });
 
   return {
     items,

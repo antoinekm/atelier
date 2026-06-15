@@ -2136,6 +2136,46 @@ describeEmbeddedPostgres("pipelineService", () => {
     expect(crashLinks).toHaveLength(1);
   });
 
+  it("fires stage-entry automation when an item is ingested directly into an automated stage", async () => {
+    const company = await seedCompany();
+    const routine = await seedRoutine(company.id, "Direct ingest automation");
+    const pipeline = await svc.createPipeline({
+      companyId: company.id,
+      key: "direct-automation",
+      name: "Direct automation",
+      actor: userActor,
+      stages: [
+        { key: "intake", name: "Intake", kind: "open" },
+        { key: "drafting", name: "Drafting", kind: "working", config: { onEnter: { type: "run_routine", routineId: routine.id } } },
+        { key: "done", name: "Done", kind: "done" },
+        { key: "cancelled", name: "Cancelled", kind: "cancelled" },
+      ],
+    });
+
+    const created = await svc.ingestCase({
+      companyId: company.id,
+      pipelineId: pipeline.id,
+      stageKey: "drafting",
+      caseKey: "direct",
+      title: "Direct case",
+      actor: userActor,
+    });
+
+    expect(created.created).toBe(true);
+    expect(created.automationLedger?.routineId).toBe(routine.id);
+    expect(created.automationExecution.status).toBe("succeeded");
+    const ledgers = await db.select().from(pipelineAutomationExecutions);
+    expect(ledgers).toHaveLength(1);
+    expect(ledgers[0]!.executionIssueId).toBeTruthy();
+    const runs = await db.select().from(routineRuns);
+    expect(runs).toHaveLength(1);
+    const links = await db.select().from(pipelineCaseIssueLinks);
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({ caseId: created.case.id, issueId: ledgers[0]!.executionIssueId, role: "automation" });
+    const events = await db.select().from(pipelineCaseEvents).where(eq(pipelineCaseEvents.caseId, created.case.id));
+    expect(events.map((event) => event.type)).toContain("automation_executed");
+  });
+
   it("rejects cross-company stage automation routines at save and execution", async () => {
     const company = await seedCompany();
     const otherCompany = await seedCompany();

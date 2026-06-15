@@ -228,6 +228,10 @@ describe("PipelineSettings", () => {
     });
     vi.spyOn(pipelinesApi, "update").mockResolvedValue(makePipeline());
     vi.spyOn(pipelinesApi, "getHealth").mockResolvedValue({ pipelineId: "pipeline-1", warnings: [], ok: true });
+    vi.spyOn(pipelinesApi, "listCompanyCaseEvents").mockResolvedValue({
+      items: [],
+      pagination: { limit: 75, offset: 0, nextOffset: null, hasMore: false },
+    });
     vi.spyOn(pipelinesApi, "list").mockResolvedValue([
       makePipeline(),
       {
@@ -489,6 +493,57 @@ describe("PipelineSettings", () => {
     expect(container.querySelector('button[aria-label="Intake, 1 warning"]')).not.toBeNull();
     expect(container.textContent).toContain("This step won't run yet");
     expect(container.textContent).toContain("Nothing runs here automatically");
+
+    flushSync(() => {
+      root.unmount();
+    });
+    queryClient.clear();
+  });
+
+  it("shows automation issue events in the selected stage Runs section", async () => {
+    (pipelinesApi.listCompanyCaseEvents as unknown as { mockResolvedValueOnce: (value: unknown) => void }).mockResolvedValueOnce({
+      items: [
+        {
+          id: "event-automation",
+          companyId: "company-1",
+          caseId: "case-1",
+          type: "automation_executed",
+          actorType: "system",
+          actorUserId: null,
+          actorAgentId: null,
+          runId: null,
+          fromStageId: null,
+          toStageId: null,
+          payload: { routineId: "routine-1", issueId: "issue-1", routineRunId: "run-1" },
+          case: { id: "case-1", caseKey: "case-1", title: "Launch release", terminalKind: null },
+          pipeline: { id: "pipeline-1", key: "content_pipeline", name: "Content pipeline" },
+          fromStage: null,
+          toStage: null,
+          actorAgent: null,
+          automation: {
+            routine: { id: "routine-1", title: "Intake automation" },
+            issue: { id: "issue-1", identifier: "PAP-222", title: "Run automation", status: "in_progress" },
+            routineRunId: "run-1",
+            stage: { id: "stage-1", key: "intake", name: "Intake", kind: "working" },
+          },
+          createdAt: "2026-06-01T00:00:00.000Z",
+          updatedAt: "2026-06-01T00:00:00.000Z",
+        },
+      ],
+      pagination: { limit: 75, offset: 0, nextOffset: null, hasMore: false },
+    });
+    const { container, root, queryClient } = renderSettings();
+    await flushQueries();
+
+    flushSync(() => {
+      findButton(container, "Runs")!.click();
+    });
+    await flushQueries();
+
+    expect(container.textContent).toContain("Launch release");
+    expect(container.textContent).toContain("Automation completed");
+    expect(container.textContent).toContain("Intake automation");
+    expect(container.textContent).toContain("PAP-222");
 
     flushSync(() => {
       root.unmount();

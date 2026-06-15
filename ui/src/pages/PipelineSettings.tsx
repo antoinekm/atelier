@@ -718,12 +718,16 @@ export function PipelineSettings() {
     return (stageEventsQuery.data?.items ?? []).filter(
       (event) =>
         event.pipeline.id === pipelineId &&
-        (event.fromStageId === selectedStage.id || event.toStageId === selectedStage.id),
+        (
+          event.fromStageId === selectedStage.id ||
+          event.toStageId === selectedStage.id ||
+          event.automation?.stage?.id === selectedStage.id
+        ),
     );
   }, [pipelineId, selectedStage, stageEventsQuery.data?.items]);
 
   const stageRunEvents = useMemo(
-    () => stageEvents.filter((event) => Boolean(event.runId || event.actorAgent)),
+    () => stageEvents.filter((event) => Boolean(event.runId || event.actorAgent || event.automation)),
     [stageEvents],
   );
 

@@ -2645,7 +2645,8 @@ export function pipelineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeu
       const caseKey = input.caseKey ?? randomUUID();
       assertCaseKey(caseKey);
 
-      return db.transaction(async (tx) => {
+      const automationLedgers: Array<typeof pipelineAutomationExecutions.$inferSelect> = [];
+      const result = await db.transaction(async (tx) => {
         const pipeline = await getPipelineOrThrow(tx, input.companyId, input.pipelineId);
         if (pipeline.archivedAt) throw unprocessable("Pipeline is archived", { code: "pipeline_archived" });
         const requestKey = input.requestKey?.trim() || null;
@@ -2737,7 +2738,7 @@ export function pipelineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeu
           return { case: existing, created: false };
         }
 
-        await writeCaseEvent(tx, {
+        const ingestEvent = await writeCaseEvent(tx, {
           companyId: input.companyId,
           caseId: inserted.id,
           type: "ingested",
@@ -2767,8 +2768,27 @@ export function pipelineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeu
             },
           });
         }
-        return { case: inserted, created: true };
+        if (blockedByCaseIds.length === 0) {
+          const ledger = await enqueueStageAutomationLedger(tx, {
+            companyId: input.companyId,
+            caseId: inserted.id,
+            stage,
+            eventId: ingestEvent.id,
+          });
+          if (ledger) automationLedgers.push(ledger);
+          return { case: inserted, created: true, event: ingestEvent, automationLedger: ledger };
+        }
+        return { case: inserted, created: true, event: ingestEvent, automationLedger: null };
       });
+      const automationExecutions = await executeAutomationLedgers(automationLedgers, { type: "system" });
+      if ("automationLedger" in result && result.automationLedger) {
+        return {
+          ...result,
+          automationExecution: automationExecutions.get(result.automationLedger.id) ?? { status: "none" },
+          automationExecutions: [...automationExecutions.values()],
+        };
+      }
+      return { ...result, automationExecution: { status: "none" } satisfies PipelineAutomationExecutionResult };
     },
 
     async ingestCases(input: {

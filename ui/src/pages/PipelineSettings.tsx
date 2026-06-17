@@ -73,7 +73,6 @@ import { cn, relativeTime } from "../lib/utils";
 import { Link, useNavigate, useParams, useSearchParams } from "@/lib/router";
 import { StageHealthWarnings } from "../components/PipelineHealthWarnings";
 import {
-  breakdownMechanicsBullets,
   breakdownSummarySentence,
   pieceNounPlural,
   readStageBreakdown,
@@ -1169,9 +1168,6 @@ export function PipelineSettings() {
   const breakdownSummary = breakdownEnabled
     ? breakdownSummarySentence(breakdownConfigForCopy, breakdownCopyNames)
     : null;
-  const breakdownBullets = breakdownEnabled
-    ? breakdownMechanicsBullets(breakdownConfigForCopy, breakdownCopyNames)
-    : [];
   const breakdownSettingsCard = !isPipelineTerminalStageKind(stageKind) ? (
     <div className="rounded-lg border border-border">
       <div className="flex items-start justify-between gap-4 border-b border-border p-4">
@@ -1795,22 +1791,6 @@ export function PipelineSettings() {
                               }}
                             />
                           </div>
-                          {breakdownEnabled && breakdownBullets.length > 0 ? (
-                            <div className="rounded-lg border border-border bg-muted/20 p-4">
-                              <h4 className="text-sm font-semibold text-foreground">Paperclip handles this</h4>
-                              <p className="mt-0.5 text-xs text-muted-foreground">
-                                Generated from the “Break into pieces” settings below. Read-only here.
-                              </p>
-                              <ul className="mt-3 space-y-1.5 text-sm text-muted-foreground">
-                                {breakdownBullets.map((bullet, index) => (
-                                  <li key={index} className="flex gap-2">
-                                    <span aria-hidden className="text-muted-foreground">•</span>
-                                    <span>{bullet}</span>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          ) : null}
                         </>
                       ) : (
                         <EmptyState
@@ -1841,7 +1821,12 @@ export function PipelineSettings() {
 
                   {activeStageSection === "advanced" && !isPipelineTerminalStageKind(stageKind) ? (
                     <div className="w-full max-w-3xl space-y-8">
-                      {breakdownEnabled ? null : (
+                      {breakdownEnabled ? (
+                        <EmptyState
+                          icon={SlidersHorizontal}
+                          message="Advanced child settings are hidden while Break into smaller pieces is enabled. Configure that workflow in Automation."
+                        />
+                      ) : (
                       <div className="divide-y divide-border border-b border-border">
                         <div className="py-3">
                           <h3 className="text-sm font-semibold text-foreground">Children</h3>

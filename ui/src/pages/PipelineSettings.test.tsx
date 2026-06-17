@@ -376,6 +376,54 @@ describe("PipelineSettings", () => {
     queryClient.clear();
   });
 
+  it("hides generated breakdown mechanics and explains the empty Advanced tab", async () => {
+    const pipeline = makePipeline();
+    pipeline.stages = pipeline.stages.map((stage) =>
+      stage.id === "stage-1"
+        ? {
+            ...stage,
+            config: {
+              ...stage.config,
+              breakdown: {
+                targetPipelineId: "pipeline-2",
+                targetStageKey: "incoming",
+                pieceNoun: "task",
+                inheritFields: [],
+                advanceTo: "review",
+                waitForPieces: false,
+                whenFinishedMoveTo: null,
+              },
+            },
+          }
+        : stage,
+    );
+    vi.mocked(pipelinesApi.get).mockResolvedValue(pipeline);
+
+    const { container, root, queryClient } = renderSettings();
+    await flushQueries();
+
+    flushSync(() => {
+      findButton(container, "Automation")!.click();
+    });
+
+    expect(container.textContent).toContain("What should the agent decide?");
+    expect(container.textContent).not.toContain("Paperclip handles this");
+
+    flushSync(() => {
+      findButton(container, "Advanced")!.click();
+    });
+
+    expect(container.textContent).toContain(
+      "Advanced child settings are hidden while Break into smaller pieces is enabled",
+    );
+    expect(container.textContent).not.toContain("Block children");
+
+    flushSync(() => {
+      root.unmount();
+    });
+    queryClient.clear();
+  });
+
   it("shows the approver picker only for review stages", async () => {
     const { container, root, queryClient } = renderSettings();
     await flushQueries();

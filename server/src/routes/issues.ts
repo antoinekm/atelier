@@ -95,6 +95,7 @@ import {
   resolveTaskWatchdogMutationScope,
   taskWatchdogScopeAllowsIssueMutation,
 } from "../services/task-watchdog-scope.js";
+import type { TaskWatchdogServiceDeps } from "../services/task-watchdogs.js";
 import { logger } from "../middleware/logger.js";
 import { conflict, forbidden, HttpError, notFound, unauthorized, unprocessable } from "../errors.js";
 import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
@@ -1021,6 +1022,7 @@ export function issueRoutes(
     searchService?: CompanySearchService;
     searchRateLimiter?: CompanySearchRateLimiter;
     pluginWorkerManager?: PluginWorkerManager;
+    taskWatchdogEnqueueWakeup?: TaskWatchdogServiceDeps["enqueueWakeup"] | null;
   } = {},
 ) {
   const router = Router();
@@ -1049,7 +1051,11 @@ export function issueRoutes(
   const documentAnnotationsSvc = documentAnnotationService(db);
   const issueReferencesSvc = issueReferenceService(db);
   const issueThreadInteractionsSvc = issueThreadInteractionService(db);
-  const taskWatchdogsSvc = taskWatchdogService(db);
+  const taskWatchdogsSvc = taskWatchdogService(db, {
+    enqueueWakeup: opts.taskWatchdogEnqueueWakeup === undefined
+      ? heartbeat.wakeup
+      : opts.taskWatchdogEnqueueWakeup ?? undefined,
+  });
   const routinesSvc = routineService(db, {
     pluginWorkerManager: opts.pluginWorkerManager,
   });
@@ -1064,6 +1070,14 @@ export function issueRoutes(
   };
   const feedbackExportService = opts?.feedbackExportService;
   const environmentsSvc = environmentService(db);
+
+  async function queueTaskWatchdogEvaluation(issue: { id: string; companyId: string }, runId?: string | null) {
+    await taskWatchdogsSvc
+      .reconcileForIssueAndAncestors(issue.companyId, issue.id, { runId: runId ?? null })
+      .catch((err) => {
+        logger.warn({ err, issueId: issue.id }, "task watchdog evaluation hook failed");
+      });
+  }
 
   async function sourceTrustForActorWrite(
     issue: { id: string; companyId: string; projectId?: string | null; executionPolicy?: unknown },
@@ -3062,6 +3076,7 @@ export function issueRoutes(
         instructionsChanged: true,
       },
     });
+    await queueTaskWatchdogEvaluation(issue, actor.runId);
     res.json(watchdog);
   });
 
@@ -3100,6 +3115,7 @@ export function issueRoutes(
         },
       });
     }
+    await queueTaskWatchdogEvaluation(issue, actor.runId);
     res.json({ ok: true });
   });
 
@@ -4639,6 +4655,7 @@ export function issueRoutes(
       requestedByActorType: actor.actorType,
       requestedByActorId: actor.actorId,
     });
+    await queueTaskWatchdogEvaluation(issue, actor.runId);
 
     res.status(201).json({
       ...issue,
@@ -4776,6 +4793,7 @@ export function issueRoutes(
       requestedByActorType: actor.actorType,
       requestedByActorId: actor.actorId,
     });
+    await queueTaskWatchdogEvaluation(issue, actor.runId);
 
     res.status(201).json(issue);
   });
@@ -4936,6 +4954,7 @@ export function issueRoutes(
         requestedByActorType: actor.actorType,
         requestedByActorId: actor.actorId,
       });
+      await queueTaskWatchdogEvaluation(issue, actor.runId);
     }
 
     res.json({
@@ -6012,6 +6031,7 @@ export function issueRoutes(
       }
     })();
 
+    await queueTaskWatchdogEvaluation(issue, actor.runId);
     res.json({ ...issueResponse, comment });
   });
 
@@ -6052,6 +6072,7 @@ export function issueRoutes(
       entityId: issue.id,
     });
 
+    await queueTaskWatchdogEvaluation(existing, actor.runId);
     res.json(issue);
   });
 
@@ -7394,6 +7415,7 @@ export function issueRoutes(
       }
     })();
 
+    await queueTaskWatchdogEvaluation(currentIssue, actor.runId);
     res.status(201).json(comment);
   });
 

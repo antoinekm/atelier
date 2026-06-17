@@ -5,11 +5,15 @@ import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   activityLog,
+  agentWakeupRequests,
   agents,
   companies,
   companyMemberships,
   createDb,
+  heartbeatRunEvents,
   heartbeatRuns,
+  issueComments,
+  issueRelations,
   issueWatchdogs,
   issues,
   principalPermissionGrants,
@@ -42,8 +46,12 @@ describeEmbeddedPostgres("issue watchdog routes", () => {
 
   afterEach(async () => {
     await db.delete(activityLog);
-    await db.delete(issueWatchdogs);
+    await db.delete(issueComments);
+    await db.delete(heartbeatRunEvents);
     await db.delete(heartbeatRuns);
+    await db.delete(agentWakeupRequests);
+    await db.delete(issueRelations);
+    await db.delete(issueWatchdogs);
     await db.delete(issues);
     await db.delete(agents);
     await db.delete(principalPermissionGrants);
@@ -69,7 +77,7 @@ describeEmbeddedPostgres("issue watchdog routes", () => {
       };
       next();
     });
-    app.use("/api", issueRoutes(db, {} as any));
+    app.use("/api", issueRoutes(db, {} as any, { taskWatchdogEnqueueWakeup: null }));
     app.use(errorHandler);
     return app;
   }
@@ -243,11 +251,13 @@ describeEmbeddedPostgres("issue watchdog routes", () => {
       .select({ action: activityLog.action })
       .from(activityLog)
       .where(eq(activityLog.entityId, issueId));
-    expect(actions.map((row) => row.action)).toEqual([
+    const actionNames = actions.map((row) => row.action);
+    expect(actionNames.filter((action) => action.startsWith("issue.watchdog_"))).toEqual([
       "issue.watchdog_created",
       "issue.watchdog_updated",
       "issue.watchdog_removed",
     ]);
+    expect(actionNames).toContain("issue.task_watchdog_triggered");
   });
 
   it("creates an issue and watchdog atomically from the create issue route", async () => {

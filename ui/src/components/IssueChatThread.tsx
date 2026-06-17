@@ -3840,8 +3840,10 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
         </div>
       ) : null}
 
-      {body.trim() ? (
-        <ComposerHandoffPreviewRow preview={handoffPreview} resolvers={handoffResolvers} />
+      {body.trim() && handoffPreview.kind !== "none" ? (
+        <div className="my-2">
+          <ComposerHandoffPreviewRow preview={handoffPreview} resolvers={handoffResolvers} />
+        </div>
       ) : null}
 
       <div className="flex flex-wrap items-center justify-end gap-3">

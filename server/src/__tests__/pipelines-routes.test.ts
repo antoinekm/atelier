@@ -960,7 +960,7 @@ describeEmbeddedPostgres("pipeline routes", () => {
                 pieceNoun: "piece",
                 inheritFields: ["release"],
                 advanceTo: "waiting",
-                waitForPieces: true,
+                waitForPieces: false,
                 whenFinishedMoveTo: "done",
               },
             },
@@ -1851,7 +1851,7 @@ describeEmbeddedPostgres("pipeline routes", () => {
                 targetPipelineId: target.body.id,
                 targetStageKey: "intake",
                 pieceNoun: "piece",
-                waitForPieces: true,
+                waitForPieces: false,
               },
             },
           },
@@ -1977,7 +1977,7 @@ describeEmbeddedPostgres("pipeline routes", () => {
                 targetPipelineId: target.body.id,
                 targetStageKey: "intake",
                 pieceNoun: "piece",
-                waitForPieces: true,
+                waitForPieces: false,
               },
             },
           },
@@ -2075,7 +2075,7 @@ describeEmbeddedPostgres("pipeline routes", () => {
                 targetPipelineId: target.body.id,
                 targetStageKey: "intake",
                 pieceNoun: "piece",
-                waitForPieces: true,
+                waitForPieces: false,
               },
             },
           },
@@ -2186,6 +2186,228 @@ describeEmbeddedPostgres("pipeline routes", () => {
     });
     const targetCases = await http.get(`/api/pipelines/${target.body.id}/cases`).expect(200);
     expect(targetCases.body.map((row: { case: { requestKey: string | null } }) => row.case.requestKey)).toEqual(["piece:api"]);
+  });
+
+  it("retries the previous automated stage by retiring owned effects and allowing replacement request keys", async () => {
+    const company = await seedCompany();
+    const [agent] = await db.insert(agents).values({
+      companyId: company.id,
+      name: "Retry Bot",
+      role: "engineer",
+      status: "idle",
+    }).returning();
+    await grantAgentPipelineWrite(company.id, agent!.id);
+    const [routine] = await db.insert(routines).values({
+      companyId: company.id,
+      title: "Retry automation",
+      description: "Create children.",
+      assigneeAgentId: agent!.id,
+    }).returning();
+    const http = request(app(boardActor));
+    const target = await http
+      .post(`/api/companies/${company.id}/pipelines`)
+      .send({ key: "retry-child-target", name: "Retry Child Target" })
+      .expect(201);
+    const source = await http
+      .post(`/api/companies/${company.id}/pipelines`)
+      .send({
+        key: "retry-source",
+        name: "Retry Source",
+        stages: [
+          {
+            key: "intake",
+            name: "Intake",
+            kind: "working",
+            position: 100,
+            config: {
+              onEnter: { type: "run_routine", routineId: routine!.id },
+              breakdown: {
+                targetPipelineId: target.body.id,
+                targetStageKey: "intake",
+                pieceNoun: "piece",
+                waitForPieces: false,
+              },
+            },
+          },
+          { key: "covering", name: "Covering", kind: "working", position: 200 },
+          { key: "done", name: "Done", kind: "done", position: 900 },
+          { key: "cancelled", name: "Cancelled", kind: "cancelled", position: 1000 },
+        ],
+      })
+      .expect(201);
+    const parent = await http
+      .post(`/api/pipelines/${source.body.id}/cases`)
+      .send({ caseKey: "parent", title: "Parent" })
+      .expect(201);
+    const [firstAttempt] = await db
+      .select()
+      .from(pipelineAutomationExecutions)
+      .where(eq(pipelineAutomationExecutions.caseId, parent.body.case.id));
+    expect(firstAttempt?.executionIssueId).toBeTruthy();
+    const child = await http
+      .post(`/api/pipelines/${target.body.id}/cases`)
+      .send({
+        caseKey: "child-original",
+        title: "Original child",
+        parentCaseId: parent.body.case.id,
+        requestKey: "piece:api",
+      })
+      .expect(201);
+    await db
+      .update(pipelineCases)
+      .set({ automationAttemptId: firstAttempt!.id })
+      .where(eq(pipelineCases.id, child.body.case.id));
+    const parentBeforeCovering = await http.get(`/api/cases/${parent.body.case.id}`).expect(200);
+    await http
+      .post(`/api/cases/${parent.body.case.id}/transition`)
+      .send({ toStageKey: "covering", expectedVersion: parentBeforeCovering.body.case.version })
+      .expect(200);
+
+    const plan = await http
+      .get(`/api/cases/${parent.body.case.id}/automation/retry-plan`)
+      .query({ scope: "previous_stage" })
+      .expect(200);
+    expect(plan.body).toMatchObject({
+      allowed: true,
+      scope: "previous_stage",
+      targetStage: { key: "intake" },
+      effectCounts: { directChildren: 1 },
+    });
+
+    const retry = await http
+      .post(`/api/cases/${parent.body.case.id}/automation/retry`)
+      .send({
+        scope: "previous_stage",
+        expectedVersion: plan.body.caseVersion,
+        cleanup: {
+          retireDirectChildren: true,
+          retireDescendants: true,
+          cancelLinkedAutomationIssues: true,
+        },
+      })
+      .expect(200);
+    expect(retry.body.plan.previousAttemptId).toBe(firstAttempt!.id);
+    expect(retry.body.retired.caseIds).toContain(child.body.case.id);
+    expect(retry.body.automationLedger.retryOfExecutionId).toBe(firstAttempt!.id);
+
+    const [retiredChild] = await db
+      .select()
+      .from(pipelineCases)
+      .where(eq(pipelineCases.id, child.body.case.id));
+    expect(retiredChild!.retiredAt).toBeTruthy();
+    expect(retiredChild!.hiddenFromBoardAt).toBeTruthy();
+    const visibleChildren = await http
+      .get(`/api/pipelines/${target.body.id}/cases`)
+      .query({ parentCaseId: parent.body.case.id })
+      .expect(200);
+    expect(visibleChildren.body).toHaveLength(0);
+
+    const replacement = await http
+      .post(`/api/pipelines/${target.body.id}/cases`)
+      .send({
+        caseKey: "child-replacement",
+        title: "Replacement child",
+        parentCaseId: parent.body.case.id,
+        requestKey: "piece:api",
+      })
+      .expect(201);
+    expect(replacement.body.created).toBe(true);
+    expect(replacement.body.case.id).not.toBe(child.body.case.id);
+  });
+
+  it("blocks automation retry preflight when owned effects have active linked work", async () => {
+    const company = await seedCompany();
+    const [agent] = await db.insert(agents).values({
+      companyId: company.id,
+      name: "Retry Bot",
+      role: "engineer",
+      status: "idle",
+    }).returning();
+    await grantAgentPipelineWrite(company.id, agent!.id);
+    const [routine] = await db.insert(routines).values({
+      companyId: company.id,
+      title: "Retry automation",
+      assigneeAgentId: agent!.id,
+    }).returning();
+    const http = request(app(boardActor));
+    const pipeline = await http
+      .post(`/api/companies/${company.id}/pipelines`)
+      .send({
+        key: "active-work-retry",
+        name: "Active Work Retry",
+        stages: [
+          {
+            key: "intake",
+            name: "Intake",
+            kind: "working",
+            position: 100,
+            config: { onEnter: { type: "run_routine", routineId: routine!.id } },
+          },
+          { key: "covering", name: "Covering", kind: "working", position: 200 },
+          { key: "done", name: "Done", kind: "done", position: 900 },
+          { key: "cancelled", name: "Cancelled", kind: "cancelled", position: 1000 },
+        ],
+      })
+      .expect(201);
+    const parent = await http
+      .post(`/api/pipelines/${pipeline.body.id}/cases`)
+      .send({ caseKey: "parent", title: "Parent" })
+      .expect(201);
+    const [attempt] = await db
+      .select()
+      .from(pipelineAutomationExecutions)
+      .where(eq(pipelineAutomationExecutions.caseId, parent.body.case.id));
+    const child = await http
+      .post(`/api/pipelines/${pipeline.body.id}/cases`)
+      .send({
+        caseKey: "child-active-work",
+        title: "Child with active work",
+        parentCaseId: parent.body.case.id,
+        requestKey: "piece:active",
+      })
+      .expect(201);
+    await db
+      .update(pipelineCases)
+      .set({ automationAttemptId: attempt!.id })
+      .where(eq(pipelineCases.id, child.body.case.id));
+    const [workIssue] = await db.insert(issues).values({
+      companyId: company.id,
+      title: "Active child work",
+      status: "in_progress",
+      priority: "medium",
+    }).returning();
+    await db.insert(pipelineCaseIssueLinks).values({
+      companyId: company.id,
+      caseId: child.body.case.id,
+      issueId: workIssue!.id,
+      role: "work",
+    });
+    const parentBeforeCovering = await http.get(`/api/cases/${parent.body.case.id}`).expect(200);
+    await http
+      .post(`/api/cases/${parent.body.case.id}/transition`)
+      .send({ toStageKey: "covering", expectedVersion: parentBeforeCovering.body.case.version })
+      .expect(200);
+
+    const plan = await http
+      .get(`/api/cases/${parent.body.case.id}/automation/retry-plan`)
+      .query({ scope: "previous_stage" })
+      .expect(200);
+    expect(plan.body.allowed).toBe(false);
+    expect(plan.body.effectCounts.activeDescendants).toBeGreaterThanOrEqual(1);
+    const activeDescendantBlocker = plan.body.blockers.find((blocker: { kind: string }) => blocker.kind === "active_descendants");
+    expect(activeDescendantBlocker?.issueIds).toEqual(expect.arrayContaining([workIssue!.id]));
+    await http
+      .post(`/api/cases/${parent.body.case.id}/automation/retry`)
+      .send({
+        scope: "previous_stage",
+        expectedVersion: plan.body.caseVersion,
+        cleanup: {
+          retireDirectChildren: true,
+          retireDescendants: true,
+          cancelLinkedAutomationIssues: true,
+        },
+      })
+      .expect(422);
   });
 
   it("rejects agent exits from human review stages", async () => {

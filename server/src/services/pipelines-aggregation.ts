@@ -433,7 +433,9 @@ export async function getCaseChildrenTree(db: Db, companyId: string, caseId: str
              child.terminal_kind, child.created_at, child.updated_at, parent.depth + 1
       from pipeline_cases child
       join subtree parent on child.parent_case_id = parent.id
-      where child.company_id = ${companyId} and parent.depth < ${CASE_CHILDREN_TREE_MAX_DEPTH}
+      where child.company_id = ${companyId}
+        and child.hidden_from_board_at is null
+        and parent.depth < ${CASE_CHILDREN_TREE_MAX_DEPTH}
     )
     select * from subtree limit ${CASE_CHILDREN_TREE_MAX_NODES + 1}
   `);
@@ -530,7 +532,11 @@ export async function getDirectChildrenSummary(
       inMotion: sql<number>`count(*) filter (where ${pipelineCases.terminalKind} is null)::int`,
     })
     .from(pipelineCases)
-    .where(and(eq(pipelineCases.companyId, companyId), eq(pipelineCases.parentCaseId, caseId)));
+    .where(and(
+      eq(pipelineCases.companyId, companyId),
+      eq(pipelineCases.parentCaseId, caseId),
+      isNull(pipelineCases.hiddenFromBoardAt),
+    ));
   return counts ?? { total: 0, done: 0, dropped: 0, inMotion: 0 };
 }
 
@@ -610,6 +616,7 @@ export async function loadDescendantActiveWorkCountsForCases(
       from pipeline_cases child
       join subtree on child.parent_case_id = subtree.id
       where child.company_id = ${companyId}
+        and child.hidden_from_board_at is null
         and subtree.depth < ${CASE_CHILDREN_TREE_MAX_DEPTH}
     )
     select subtree.root_id, count(distinct subtree.id)::int as count
@@ -668,6 +675,7 @@ export async function loadPipelineDescendantActiveWorkCounts(
       from pipeline_cases child
       join subtree on child.parent_case_id = subtree.id
       where child.company_id = ${companyId}
+        and child.hidden_from_board_at is null
         and subtree.depth < ${CASE_CHILDREN_TREE_MAX_DEPTH}
     )
     select subtree.root_pipeline_id as pipeline_id, count(distinct subtree.id)::int as count

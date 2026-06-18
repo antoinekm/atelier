@@ -22,6 +22,9 @@ import {
 import {
   syncRoutineVariablesWithTemplate,
   type EnvBinding,
+  type PipelineAutomationRetryCleanupOptions,
+  type PipelineAutomationRetryPlan,
+  type PipelineAutomationRetryScope,
   type PipelineCaseConversationSourceLinkRole,
   type PipelineCaseConversationSourceReason,
   type PipelineStageAutomation,
@@ -132,6 +135,11 @@ export type PipelineAutomationExecutionResult =
   | { status: "failed"; execution: typeof pipelineAutomationExecutions.$inferSelect };
 
 type PipelineDb = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+type PipelineRetryPlanInternal = PipelineAutomationRetryPlan & {
+  targetStageRow: typeof pipelineStages.$inferSelect | null;
+  automationRoutineId: string | null;
+};
 
 export interface ResolvedPipelineCaseConversationSource {
   issue: typeof issues.$inferSelect;
@@ -760,6 +768,18 @@ function stageAutomation(stage: typeof pipelineStages.$inferSelect) {
   return {
     id: onEnter.id ?? `${stage.id}:on_enter`,
     routineId: onEnter.routineId,
+  };
+}
+
+function stageRef(stage: typeof pipelineStages.$inferSelect) {
+  return { id: stage.id, key: stage.key, name: stage.name };
+}
+
+function defaultRetryCleanup(): PipelineAutomationRetryCleanupOptions {
+  return {
+    retireDirectChildren: true,
+    retireDescendants: true,
+    cancelLinkedAutomationIssues: true,
   };
 }
 
@@ -1729,6 +1749,8 @@ async function enqueueStageAutomationLedger(
     caseId: string;
     stage: typeof pipelineStages.$inferSelect;
     eventId: string;
+    retryOfExecutionId?: string | null;
+    generation?: number;
   },
 ) {
   const automation = stageAutomation(input.stage);
@@ -1742,6 +1764,8 @@ async function enqueueStageAutomationLedger(
       triggeringEventId: input.eventId,
       routineId: automation.routineId,
       status: "failed",
+      retryOfExecutionId: input.retryOfExecutionId ?? null,
+      generation: input.generation ?? 1,
       error: "pending_dispatch",
     })
     .onConflictDoNothing({
@@ -1753,6 +1777,44 @@ async function enqueueStageAutomationLedger(
     })
     .returning();
   return ledger ?? null;
+}
+
+async function resolveAutomationAttemptForActorRun(db: PipelineDb, companyId: string, runId?: string | null) {
+  if (!runId) return null;
+  const row = await db
+    .select({ execution: pipelineAutomationExecutions })
+    .from(heartbeatRuns)
+    .innerJoin(
+      pipelineAutomationExecutions,
+      and(
+        eq(pipelineAutomationExecutions.companyId, companyId),
+        sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = cast(${pipelineAutomationExecutions.executionIssueId} as text)`,
+      ),
+    )
+    .where(and(eq(heartbeatRuns.companyId, companyId), eq(heartbeatRuns.id, runId)))
+    .orderBy(desc(pipelineAutomationExecutions.createdAt), desc(pipelineAutomationExecutions.id))
+    .limit(1)
+    .then((rows) => rows[0] ?? null);
+  return row?.execution ?? null;
+}
+
+async function descendantCaseIds(db: PipelineDb, companyId: string, rootCaseIds: string[]) {
+  if (rootCaseIds.length === 0) return [];
+  const rootIdList = sql.raw(`(${rootCaseIds.map((id) => `'${id.replace(/'/g, "''")}'::uuid`).join(",")})`);
+  const result = await db.execute(sql`
+    with recursive descendants as (
+      select id, parent_case_id, 0 as depth
+      from pipeline_cases
+      where company_id = ${companyId} and id in ${rootIdList}
+      union all
+      select child.id, child.parent_case_id, parent.depth + 1
+      from pipeline_cases child
+      join descendants parent on child.parent_case_id = parent.id
+      where child.company_id = ${companyId} and parent.depth < 25
+    )
+    select id from descendants where id not in ${rootIdList}
+  `);
+  return Array.from(result).map((row) => String((row as { id: string }).id));
 }
 
 export function pipelineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeupDeps } = {}) {
@@ -1936,6 +1998,210 @@ export function pipelineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeu
     }
     const { targetPipeline, targetStage } = await loadBreakdownTarget(db, input.companyId, config);
     return { targetPipeline, targetStage, config };
+  }
+
+  async function findPreviousAutomatedStage(
+    dbOrTx: PipelineDb,
+    input: { companyId: string; caseId: string; currentStageId: string },
+  ) {
+    const rows = await dbOrTx
+      .select({ stage: pipelineStages })
+      .from(pipelineCaseEvents)
+      .innerJoin(pipelineStages, eq(pipelineCaseEvents.toStageId, pipelineStages.id))
+      .where(and(
+        eq(pipelineCaseEvents.companyId, input.companyId),
+        eq(pipelineCaseEvents.caseId, input.caseId),
+        ne(pipelineStages.id, input.currentStageId),
+        isNotNull(pipelineCaseEvents.toStageId),
+      ))
+      .orderBy(desc(pipelineCaseEvents.createdAt), desc(pipelineCaseEvents.id));
+    return rows.map((row) => row.stage).find((stage) => !!stageAutomation(stage)) ?? null;
+  }
+
+  async function collectRetryEffects(
+    dbOrTx: PipelineDb,
+    input: { companyId: string; caseId: string; previousAttemptId: string | null },
+  ) {
+    const ownedWhere = input.previousAttemptId
+      ? or(eq(pipelineCases.automationAttemptId, input.previousAttemptId), isNull(pipelineCases.automationAttemptId))
+      : undefined;
+    const directRows = await dbOrTx
+      .select({ id: pipelineCases.id })
+      .from(pipelineCases)
+      .where(and(
+        eq(pipelineCases.companyId, input.companyId),
+        eq(pipelineCases.parentCaseId, input.caseId),
+        isNull(pipelineCases.retiredAt),
+        ownedWhere,
+      ));
+    const directCaseIds = directRows.map((row) => row.id);
+    const descendantIds = await descendantCaseIds(dbOrTx, input.companyId, directCaseIds);
+    const effectCaseIds = [...new Set([...directCaseIds, ...descendantIds])];
+    const linkRows = await dbOrTx
+      .select({ issueId: pipelineCaseIssueLinks.issueId })
+      .from(pipelineCaseIssueLinks)
+      .where(and(
+        eq(pipelineCaseIssueLinks.companyId, input.companyId),
+        eq(pipelineCaseIssueLinks.caseId, input.caseId),
+        eq(pipelineCaseIssueLinks.role, "automation"),
+        isNull(pipelineCaseIssueLinks.retiredAt),
+        input.previousAttemptId
+          ? or(eq(pipelineCaseIssueLinks.automationAttemptId, input.previousAttemptId), isNull(pipelineCaseIssueLinks.automationAttemptId))
+          : undefined,
+      ));
+    const linkedAutomationIssueIds = [...new Set(linkRows.map((row) => row.issueId))];
+    const activeWorkRows = effectCaseIds.length === 0
+      ? []
+      : await dbOrTx
+        .select({ caseId: pipelineCaseIssueLinks.caseId, issueId: issues.id })
+        .from(pipelineCaseIssueLinks)
+        .innerJoin(issues, eq(pipelineCaseIssueLinks.issueId, issues.id))
+        .where(and(
+          eq(pipelineCaseIssueLinks.companyId, input.companyId),
+          inArray(pipelineCaseIssueLinks.caseId, effectCaseIds),
+          eq(pipelineCaseIssueLinks.role, "work"),
+          inArray(issues.status, ["todo", "in_progress", "in_review", "blocked"]),
+        ));
+    const blockerRows = await dbOrTx
+      .select({ blockedByCaseId: pipelineCaseBlockers.blockedByCaseId })
+      .from(pipelineCaseBlockers)
+      .innerJoin(pipelineCases, eq(pipelineCaseBlockers.blockedByCaseId, pipelineCases.id))
+      .where(and(
+        eq(pipelineCaseBlockers.companyId, input.companyId),
+        eq(pipelineCaseBlockers.caseId, input.caseId),
+        or(isNull(pipelineCases.terminalKind), ne(pipelineCases.terminalKind, "done")),
+      ));
+    return {
+      directCaseIds,
+      descendantIds,
+      effectCaseIds,
+      linkedAutomationIssueIds,
+      activeWorkIssueIds: [...new Set(activeWorkRows.map((row) => row.issueId))],
+      unresolvedBlockerCaseIds: [...new Set(blockerRows.map((row) => row.blockedByCaseId))],
+    };
+  }
+
+  async function buildAutomationRetryPlan(
+    dbOrTx: PipelineDb,
+    input: { companyId: string; caseId: string; scope: PipelineAutomationRetryScope },
+  ): Promise<PipelineRetryPlanInternal> {
+    const detail = await getCaseWithStageOrThrow(dbOrTx, input.companyId, input.caseId);
+    const targetStage = input.scope === "current_stage"
+      ? detail.stage
+      : await findPreviousAutomatedStage(dbOrTx, {
+        companyId: input.companyId,
+        caseId: input.caseId,
+        currentStageId: detail.stage.id,
+      });
+    const automation = targetStage ? stageAutomation(targetStage) : null;
+    const routine = automation
+      ? await dbOrTx
+        .select({ id: routines.id, assigneeAgentId: routines.assigneeAgentId })
+        .from(routines)
+        .where(and(eq(routines.companyId, input.companyId), eq(routines.id, automation.routineId)))
+        .limit(1)
+        .then((rows) => rows[0] ?? null)
+      : null;
+    const previousAttempt = automation
+      ? await dbOrTx
+        .select()
+        .from(pipelineAutomationExecutions)
+        .where(and(
+          eq(pipelineAutomationExecutions.companyId, input.companyId),
+          eq(pipelineAutomationExecutions.caseId, input.caseId),
+          eq(pipelineAutomationExecutions.automationId, automation.id),
+        ))
+        .orderBy(desc(pipelineAutomationExecutions.generation), desc(pipelineAutomationExecutions.createdAt))
+        .limit(1)
+        .then((rows) => rows[0] ?? null)
+      : null;
+    const effects = await collectRetryEffects(dbOrTx, {
+      companyId: input.companyId,
+      caseId: input.caseId,
+      previousAttemptId: previousAttempt?.id ?? null,
+    });
+    const blockers: PipelineRetryPlanInternal["blockers"] = [];
+    if (detail.case.terminalKind || detail.case.retiredAt) {
+      blockers.push({ kind: "target_case_terminal", message: "Pipeline item is terminal or retired." });
+    }
+    if (detail.pipeline.archivedAt) {
+      blockers.push({ kind: "target_pipeline_archived", message: "Pipeline is archived." });
+    }
+    if (!targetStage) {
+      blockers.push({ kind: "previous_stage_not_found", message: "No previous automated stage was found for this item." });
+    } else if (!automation || !routine) {
+      blockers.push({ kind: "automation_not_configured", message: "Target stage does not have compatible automation configured." });
+    }
+    if (effects.unresolvedBlockerCaseIds.length > 0) {
+      blockers.push({
+        kind: "unresolved_blockers",
+        message: "Pipeline item has unresolved blockers.",
+        caseIds: effects.unresolvedBlockerCaseIds,
+      });
+    }
+    if (effects.activeWorkIssueIds.length > 0) {
+      blockers.push({
+        kind: "active_descendants",
+        message: "Retry effects include active linked work that must be resolved first.",
+        issueIds: effects.activeWorkIssueIds,
+      });
+    }
+    if (targetStage && automation && routine) {
+      const breakdownConfig = readBreakdownConfig(stageConfig(targetStage));
+      if (breakdownConfig) {
+        try {
+          const { targetPipeline } = await loadBreakdownTarget(dbOrTx, input.companyId, breakdownConfig);
+          if (targetPipeline.archivedAt) {
+            blockers.push({
+              kind: "target_pipeline_archived",
+              message: "Automation target pipeline is archived.",
+              details: { pipelineId: targetPipeline.id },
+            });
+          }
+          await assertAutomationAssigneeCanWriteTargetPipeline({
+            companyId: input.companyId,
+            principalId: routine.assigneeAgentId,
+            caseId: input.caseId,
+            stageId: targetStage.id,
+            automationId: automation.id,
+            targetPipelineId: targetPipeline.id,
+          });
+        } catch (error) {
+          if (error instanceof PipelinePermissionPreflightError) {
+            blockers.push({
+              kind: "permission_preflight_failed",
+              message: error.message,
+              details: error.details as Record<string, unknown>,
+            });
+          } else {
+            throw error;
+          }
+        }
+      }
+    }
+    return {
+      caseId: input.caseId,
+      scope: input.scope,
+      allowed: blockers.length === 0,
+      caseVersion: detail.case.version,
+      currentStage: stageRef(detail.stage),
+      targetStage: targetStage ? stageRef(targetStage) : null,
+      automationId: automation?.id ?? null,
+      routine: routine ? { id: routine.id, assigneeAgentId: routine.assigneeAgentId } : null,
+      previousAttemptId: previousAttempt?.id ?? null,
+      generation: (previousAttempt?.generation ?? 0) + 1,
+      effectCounts: {
+        directChildren: effects.directCaseIds.length,
+        descendants: effects.descendantIds.length,
+        linkedAutomationIssues: effects.linkedAutomationIssueIds.length,
+        activeDescendants: effects.activeWorkIssueIds.length,
+        unresolvedBlockers: effects.unresolvedBlockerCaseIds.length,
+      },
+      defaultCleanup: defaultRetryCleanup(),
+      blockers,
+      targetStageRow: targetStage,
+      automationRoutineId: automation?.routineId ?? null,
+    };
   }
 
   async function appendPipelineAutomationRoutineRevision(
@@ -2264,6 +2530,7 @@ export function pipelineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeu
           issueId: run.linkedIssueId,
           role: "automation",
           createdByRunId: null,
+          automationAttemptId: execution.id,
         })
         .onConflictDoNothing({ target: [pipelineCaseIssueLinks.caseId, pipelineCaseIssueLinks.issueId] });
       await writeCaseEvent(db, {
@@ -3116,11 +3383,15 @@ export function pipelineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeu
               eq(pipelineCases.companyId, input.companyId),
               eq(pipelineCases.parentCaseId, parentCase.id),
               eq(pipelineCases.requestKey, requestKey),
+              isNull(pipelineCases.retiredAt),
             ))
             .limit(1)
             .then((rows) => rows[0] ?? null);
           if (existingByRequestKey) return { case: existingByRequestKey, created: false };
         }
+        const automationAttempt = input.actor.type === "agent"
+          ? await resolveAutomationAttemptForActorRun(tx, input.companyId, input.actor.runId)
+          : null;
         const blockedByCaseKeyMap = await resolveBlockerCaseKeys(tx, {
           companyId: input.companyId,
           pipelineId: input.pipelineId,
@@ -3160,6 +3431,7 @@ export function pipelineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeu
             parentCaseId: input.parentCaseId ?? null,
             parentCaseVersion: parentCase?.version ?? null,
             requestKey,
+            automationAttemptId: automationAttempt?.id ?? null,
             terminalKind: terminalKindForStage(stage.kind),
             terminalAt: isTerminalKind(stage.kind) ? nowDate() : null,
             createdByUserId: input.actor.type === "user" ? input.actor.userId : null,
@@ -3178,6 +3450,7 @@ export function pipelineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeu
                 eq(pipelineCases.companyId, input.companyId),
                 eq(pipelineCases.parentCaseId, parentCase.id),
                 eq(pipelineCases.requestKey, requestKey),
+                isNull(pipelineCases.retiredAt),
               ))
               .limit(1)
               .then((rows) => rows[0] ?? null)
@@ -3659,6 +3932,203 @@ export function pipelineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeu
         .then((rows) => rows[0] ?? null);
       if (!execution) throw notFound("Pipeline automation execution not found");
       return executeAutomationLedger(execution.id, input.actor);
+    },
+
+    async getAutomationRetryPlan(input: {
+      companyId: string;
+      caseId: string;
+      scope: PipelineAutomationRetryScope;
+    }) {
+      const { targetStageRow: _targetStageRow, automationRoutineId: _automationRoutineId, ...plan } =
+        await buildAutomationRetryPlan(db, input);
+      return plan;
+    },
+
+    async retryStageAutomation(input: {
+      companyId: string;
+      caseId: string;
+      scope: PipelineAutomationRetryScope;
+      expectedVersion: number;
+      cleanup: PipelineAutomationRetryCleanupOptions;
+      actor: PipelineActor;
+    }) {
+      const result = await db.transaction(async (tx) => {
+        const detail = await getCaseWithStageForUpdateOrThrow(tx, input.companyId, input.caseId);
+        if (detail.case.version !== input.expectedVersion) {
+          throw conflict("Pipeline case version conflict", {
+            code: "version_conflict",
+            expectedVersion: input.expectedVersion,
+            actualVersion: detail.case.version,
+          });
+        }
+        const plan = await buildAutomationRetryPlan(tx, {
+          companyId: input.companyId,
+          caseId: input.caseId,
+          scope: input.scope,
+        });
+        if (!plan.allowed || !plan.targetStageRow || !plan.automationId || !plan.automationRoutineId) {
+          throw unprocessable("Pipeline automation retry is not currently allowed", {
+            code: "automation_retry_not_allowed",
+            blockers: plan.blockers,
+          });
+        }
+        const requestedEvent = await writeCaseEvent(tx, {
+          companyId: input.companyId,
+          caseId: input.caseId,
+          type: "automation_retry_requested",
+          actor: input.actor,
+          fromStageId: detail.stage.id,
+          toStageId: plan.targetStageRow.id,
+          payload: {
+            scope: input.scope,
+            cleanup: input.cleanup,
+            previousAttemptId: plan.previousAttemptId,
+            generation: plan.generation,
+          },
+        });
+        const ledger = await enqueueStageAutomationLedger(tx, {
+          companyId: input.companyId,
+          caseId: input.caseId,
+          stage: plan.targetStageRow,
+          eventId: requestedEvent.id,
+          retryOfExecutionId: plan.previousAttemptId,
+          generation: plan.generation,
+        });
+        if (!ledger) {
+          throw unprocessable("Target stage does not have entry automation configured", {
+            code: "automation_not_configured",
+          });
+        }
+        const effects = await collectRetryEffects(tx, {
+          companyId: input.companyId,
+          caseId: input.caseId,
+          previousAttemptId: plan.previousAttemptId,
+        });
+        const retireCaseIds = [
+          ...(input.cleanup.retireDirectChildren ? effects.directCaseIds : []),
+          ...(input.cleanup.retireDescendants ? effects.descendantIds : []),
+        ];
+        const uniqueRetireCaseIds = [...new Set(retireCaseIds)];
+        const now = nowDate();
+        if (uniqueRetireCaseIds.length > 0) {
+          await tx
+            .update(pipelineCases)
+            .set({
+              terminalKind: "cancelled",
+              terminalAt: now,
+              retiredAt: now,
+              retiredByAttemptId: ledger.id,
+              retiredReason: "automation_retry",
+              hiddenFromBoardAt: now,
+              updatedAt: now,
+              version: sql`${pipelineCases.version} + 1` as unknown as number,
+            })
+            .where(and(
+              eq(pipelineCases.companyId, input.companyId),
+              inArray(pipelineCases.id, uniqueRetireCaseIds),
+              isNull(pipelineCases.retiredAt),
+            ));
+        }
+        const issueIdsToCancel = input.cleanup.cancelLinkedAutomationIssues
+          ? effects.linkedAutomationIssueIds
+          : [];
+        if (issueIdsToCancel.length > 0) {
+          await tx
+            .update(issues)
+            .set({ status: "cancelled", updatedAt: now })
+            .where(and(
+              eq(issues.companyId, input.companyId),
+              inArray(issues.id, issueIdsToCancel),
+              ne(issues.status, "done"),
+            ));
+          await tx
+            .update(pipelineCaseIssueLinks)
+            .set({
+              retiredAt: now,
+              retiredByAttemptId: ledger.id,
+              retiredReason: "automation_retry",
+              updatedAt: now,
+            })
+            .where(and(
+              eq(pipelineCaseIssueLinks.companyId, input.companyId),
+              inArray(pipelineCaseIssueLinks.issueId, issueIdsToCancel),
+              isNull(pipelineCaseIssueLinks.retiredAt),
+            ));
+        }
+        await writeCaseEvent(tx, {
+          companyId: input.companyId,
+          caseId: input.caseId,
+          type: "automation_effects_retired",
+          actor: input.actor,
+          payload: {
+            retryAttemptId: ledger.id,
+            retiredCaseIds: uniqueRetireCaseIds,
+            cancelledIssueIds: issueIdsToCancel,
+          },
+        });
+        let updatedCase = detail.case;
+        if (input.scope === "previous_stage" && detail.case.stageId !== plan.targetStageRow.id) {
+          const enteringTerminal = terminalKindForStage(plan.targetStageRow.kind);
+          const [updated] = await tx
+            .update(pipelineCases)
+            .set({
+              stageId: plan.targetStageRow.id,
+              terminalKind: enteringTerminal,
+              terminalAt: isTerminalKind(enteringTerminal) ? now : null,
+              pendingSuggestion: null,
+              version: sql`${pipelineCases.version} + 1` as unknown as number,
+              updatedAt: now,
+            })
+            .where(and(eq(pipelineCases.id, input.caseId), eq(pipelineCases.companyId, input.companyId)))
+            .returning();
+          updatedCase = updated!;
+          await writeCaseEvent(tx, {
+            companyId: input.companyId,
+            caseId: input.caseId,
+            type: "transitioned",
+            actor: input.actor,
+            fromStageId: detail.stage.id,
+            toStageId: plan.targetStageRow.id,
+            payload: {
+              transitionClass: "retry",
+              retryAttemptId: ledger.id,
+              scope: input.scope,
+            },
+          });
+        }
+        await writeCaseEvent(tx, {
+          companyId: input.companyId,
+          caseId: input.caseId,
+          type: "automation_retry_dispatched",
+          actor: input.actor,
+          toStageId: plan.targetStageRow.id,
+          payload: {
+            automationId: plan.automationId,
+            routineId: plan.automationRoutineId,
+            retryAttemptId: ledger.id,
+            previousAttemptId: plan.previousAttemptId,
+            generation: plan.generation,
+          },
+        });
+        return {
+          case: updatedCase,
+          plan,
+          ledger,
+          retired: {
+            caseIds: uniqueRetireCaseIds,
+            issueIds: issueIdsToCancel,
+          },
+        };
+      });
+      const automationExecution = await executeAutomationLedger(result.ledger.id, input.actor);
+      const { targetStageRow: _targetStageRow, automationRoutineId: _automationRoutineId, ...plan } = result.plan;
+      return {
+        case: result.case,
+        plan,
+        retired: result.retired,
+        automationLedger: result.ledger,
+        automationExecution,
+      };
     },
 
     async rerunCurrentStageAutomation(input: {

@@ -241,6 +241,14 @@ export type {
   PipelineCaseLivenessState,
   PipelineCaseConversationSourceLinkRole,
   PipelineCaseConversationSourceReason,
+  PipelineAutomationRetryBlocker,
+  PipelineAutomationRetryCleanupOptions,
+  PipelineAutomationRetryEffectCounts,
+  PipelineAutomationRetryPlan,
+  PipelineAutomationRetryRequest,
+  PipelineAutomationRetryRoutineRef,
+  PipelineAutomationRetryScope,
+  PipelineAutomationRetryStageRef,
 } from "./pipeline.js";
 export type {
   Issue,

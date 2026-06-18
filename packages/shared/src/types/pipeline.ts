@@ -71,3 +71,67 @@ export interface PipelineCaseLiveness {
     missingRequestKeys?: string[];
   } | null;
 }
+
+export type PipelineAutomationRetryScope = "current_stage" | "previous_stage";
+
+export interface PipelineAutomationRetryCleanupOptions {
+  retireDirectChildren: boolean;
+  retireDescendants: boolean;
+  cancelLinkedAutomationIssues: boolean;
+}
+
+export interface PipelineAutomationRetryStageRef {
+  id: string;
+  key: string;
+  name: string;
+}
+
+export interface PipelineAutomationRetryRoutineRef {
+  id: string;
+  assigneeAgentId: string | null;
+}
+
+export interface PipelineAutomationRetryEffectCounts {
+  directChildren: number;
+  descendants: number;
+  linkedAutomationIssues: number;
+  activeDescendants: number;
+  unresolvedBlockers: number;
+}
+
+export interface PipelineAutomationRetryBlocker {
+  kind:
+    | "automation_not_configured"
+    | "previous_stage_not_found"
+    | "target_case_terminal"
+    | "target_pipeline_archived"
+    | "active_descendants"
+    | "unresolved_blockers"
+    | "permission_preflight_failed";
+  message: string;
+  caseIds?: string[];
+  issueIds?: string[];
+  details?: Record<string, unknown>;
+}
+
+export interface PipelineAutomationRetryPlan {
+  caseId: string;
+  scope: PipelineAutomationRetryScope;
+  allowed: boolean;
+  caseVersion: number;
+  currentStage: PipelineAutomationRetryStageRef;
+  targetStage: PipelineAutomationRetryStageRef | null;
+  automationId: string | null;
+  routine: PipelineAutomationRetryRoutineRef | null;
+  previousAttemptId: string | null;
+  generation: number;
+  effectCounts: PipelineAutomationRetryEffectCounts;
+  defaultCleanup: PipelineAutomationRetryCleanupOptions;
+  blockers: PipelineAutomationRetryBlocker[];
+}
+
+export interface PipelineAutomationRetryRequest {
+  scope: PipelineAutomationRetryScope;
+  expectedVersion: number;
+  cleanup: PipelineAutomationRetryCleanupOptions;
+}

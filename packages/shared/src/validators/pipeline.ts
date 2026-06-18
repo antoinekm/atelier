@@ -97,9 +97,30 @@ export const pipelineStageConfigSchema = z.object({
   });
 });
 
+export const pipelineAutomationRetryScopeSchema = z.enum(["current_stage", "previous_stage"]);
+
+export const pipelineAutomationRetryCleanupOptionsSchema = z.object({
+  retireDirectChildren: z.boolean().default(true),
+  retireDescendants: z.boolean().default(true),
+  cancelLinkedAutomationIssues: z.boolean().default(true),
+});
+
+export const pipelineAutomationRetryRequestSchema = z.object({
+  scope: pipelineAutomationRetryScopeSchema,
+  expectedVersion: z.number().int().positive(),
+  cleanup: pipelineAutomationRetryCleanupOptionsSchema.default({
+    retireDirectChildren: true,
+    retireDescendants: true,
+    cancelLinkedAutomationIssues: true,
+  }),
+});
+
 export type PipelineStageKind = z.infer<typeof pipelineStageKindSchema>;
 export type PipelineStageApprover = z.infer<typeof pipelineStageApproverSchema>;
 export type PipelineStageOnEnter = z.infer<typeof pipelineStageOnEnterSchema>;
 export type PipelineStageBreakdown = z.infer<typeof pipelineStageBreakdownSchema>;
 export type PipelineStageVariable = z.infer<typeof pipelineStageVariableSchema>;
 export type PipelineStageConfig = z.infer<typeof pipelineStageConfigSchema>;
+export type PipelineAutomationRetryScope = z.infer<typeof pipelineAutomationRetryScopeSchema>;
+export type PipelineAutomationRetryCleanupOptions = z.infer<typeof pipelineAutomationRetryCleanupOptionsSchema>;
+export type PipelineAutomationRetryRequest = z.infer<typeof pipelineAutomationRetryRequestSchema>;

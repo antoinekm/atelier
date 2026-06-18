@@ -55,6 +55,8 @@ import {
   computePipelineHealth,
   deriveCaseType,
   envConfigSchema,
+  pipelineAutomationRetryRequestSchema,
+  pipelineAutomationRetryScopeSchema,
   type PipelineStageAutomation,
   type PipelineCaseLiveness,
   type PipelineHealthFailedAutomationInput,
@@ -170,6 +172,9 @@ const resolveSuggestionSchema = z.object({
 });
 const acknowledgeDriftSchema = z.object({
   expectedVersion: z.number().int().positive().optional(),
+});
+const retryAutomationQuerySchema = z.object({
+  scope: pipelineAutomationRetryScopeSchema.default("previous_stage"),
 });
 const reviewEditsSchema = z.object({
   title: z.string().trim().min(1).max(500).optional(),
@@ -1282,6 +1287,7 @@ export function pipelineRoutes(db: Db, options: Parameters<typeof pipelineServic
     const stageKey = typeof req.query.stageKey === "string" ? req.query.stageKey : undefined;
     const q = typeof req.query.q === "string" ? req.query.q : undefined;
     const terminal = req.query.terminal === "true" ? true : req.query.terminal === "false" ? false : undefined;
+    const includeRetired = req.query.includeRetired === "true";
     const parentCaseId = typeof req.query.parentCaseId === "string" ? req.query.parentCaseId : undefined;
     const rows = await db
       .select({ case: pipelineCases, stage: pipelineStages })
@@ -1292,6 +1298,7 @@ export function pipelineRoutes(db: Db, options: Parameters<typeof pipelineServic
         eq(pipelineCases.pipelineId, pipelineId),
         stageKey ? eq(pipelineStages.key, stageKey) : undefined,
         parentCaseId ? eq(pipelineCases.parentCaseId, parentCaseId) : undefined,
+        includeRetired ? undefined : isNull(pipelineCases.hiddenFromBoardAt),
         terminal === true ? isNotNull(pipelineCases.terminalKind) : terminal === false ? isNull(pipelineCases.terminalKind) : undefined,
         q ? or(ilike(pipelineCases.title, `%${q}%`), ilike(pipelineCases.summary, `%${q}%`)) : undefined,
       ))
@@ -1618,6 +1625,35 @@ export function pipelineRoutes(db: Db, options: Parameters<typeof pipelineServic
     });
   });
 
+  router.get("/cases/:caseId/automation/retry-plan", async (req, res) => {
+    const caseId = req.params.caseId as string;
+    const query = retryAutomationQuerySchema.parse(req.query);
+    const companyId = await assertCaseAccess(db, req, caseId);
+    const plan = await svc.getAutomationRetryPlan({ companyId, caseId, scope: query.scope });
+    if (plan.targetStage) {
+      await assertStageAutomationTargetWriteAccess(db, req, { access, companyId, stage: plan.targetStage });
+    }
+    res.json(plan);
+  });
+
+  router.post("/cases/:caseId/automation/retry", validate(pipelineAutomationRetryRequestSchema), async (req, res) => {
+    const caseId = req.params.caseId as string;
+    const companyId = await assertCaseAccess(db, req, caseId);
+    const actor = actorForMutation(req);
+    const plan = await svc.getAutomationRetryPlan({ companyId, caseId, scope: req.body.scope });
+    if (plan.targetStage) {
+      await assertStageAutomationTargetWriteAccess(db, req, { access, companyId, stage: plan.targetStage });
+    }
+    res.json(await svc.retryStageAutomation({
+      companyId,
+      caseId,
+      scope: req.body.scope,
+      expectedVersion: req.body.expectedVersion,
+      cleanup: req.body.cleanup,
+      actor,
+    }));
+  });
+
   router.post("/cases/:caseId/automations/:automationId/retry", async (req, res) => {
     const caseId = req.params.caseId as string;
     const automationId = req.params.automationId as string;
@@ -1695,8 +1731,8 @@ async function getCaseDetail(db: Db, companyId: string, caseId: string) {
     blockers,
     blocks,
     childrenSummary: {
-      childCount: row.case.childCount,
-      terminalChildCount: row.case.terminalChildCount,
+      childCount: childrenCounts.total,
+      terminalChildCount: childrenCounts.done + childrenCounts.dropped,
       loadedChildren: childrenCounts.total,
       descendantActiveWorkCount: descendantActiveWorkCounts.get(caseId) ?? 0,
       ...childrenCounts,
@@ -1763,6 +1799,31 @@ function readStageAutomationTargetPipelineId(stage: typeof pipelineStages.$infer
   const breakdown = readStageBreakdownConfig(stage.config);
   const targetPipelineId = typeof breakdown?.targetPipelineId === "string" ? breakdown.targetPipelineId.trim() : "";
   return targetPipelineId.length > 0 ? targetPipelineId : null;
+}
+
+async function assertStageAutomationTargetWriteAccess(
+  db: Db,
+  req: Request,
+  input: {
+    access: ReturnType<typeof accessService>;
+    companyId: string;
+    stage: { id: string };
+  },
+) {
+  const stage = await db
+    .select()
+    .from(pipelineStages)
+    .where(eq(pipelineStages.id, input.stage.id))
+    .limit(1)
+    .then((rows) => rows[0] ?? null);
+  if (!stage) throw notFound("Pipeline stage not found");
+  const targetPipelineId = readStageAutomationTargetPipelineId(stage);
+  if (!targetPipelineId) return;
+  await assertPipelineWriteAccess(req, {
+    access: input.access,
+    companyId: input.companyId,
+    pipelineId: targetPipelineId,
+  });
 }
 
 async function assertCurrentStageAutomationTargetWriteAccess(
@@ -2013,6 +2074,7 @@ async function derivePipelineCaseLiveness(
           eq(pipelineCases.companyId, companyId),
           eq(pipelineCases.parentCaseId, row.case.id),
           inArray(pipelineCases.requestKey, expectedRequestKeys),
+          isNull(pipelineCases.hiddenFromBoardAt),
         ))
       : [];
     const createdRequestKeys = [...new Set(createdRows

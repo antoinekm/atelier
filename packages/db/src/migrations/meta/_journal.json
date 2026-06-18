@@ -750,6 +750,13 @@
       "when": 1781281200000,
       "tag": "0106_pipeline_stage_working_primitives",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1781827200000,
+      "tag": "0107_pipeline_automation_retry_effects",
+      "breakpoints": true
     }
   ]
 }

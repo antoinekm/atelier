@@ -223,6 +223,8 @@ describeEmbeddedPostgres("task watchdog scheduler", () => {
     await service.reconcileTaskWatchdogs({ companyId });
     const [firstWatchdog] = await db.select().from(issueWatchdogs).where(eq(issueWatchdogs.issueId, sourceId));
     const watchdogIssueId = firstWatchdog!.watchdogIssueId!;
+    const [firstWatchdogIssue] = await db.select().from(issues).where(eq(issues.id, watchdogIssueId));
+    expect(firstWatchdogIssue?.originFingerprint).toBe(firstWatchdog?.lastObservedFingerprint);
     await db.update(issues).set({ status: "done", updatedAt: new Date() }).where(eq(issues.id, watchdogIssueId));
 
     const reviewed = await service.reconcileTaskWatchdogs({ companyId });
@@ -248,6 +250,66 @@ describeEmbeddedPostgres("task watchdog scheduler", () => {
       .from(issueComments)
       .where(eq(issueComments.issueId, watchdogIssueId));
     expect(comments.some((comment) => comment.body.includes("Stopped fingerprint"))).toBe(true);
+    expect(wakes.length).toBe(2);
+  });
+
+  it("does not let an old terminal watchdog review mark a newer observed fingerprint reviewed", async () => {
+    const companyId = await seedCompany();
+    const sourceId = await seedIssue(companyId, { identifier: "WDOG-STALE", status: "done" });
+    const childId = await seedIssue(companyId, { parentId: sourceId, status: "done" });
+    const agentId = await seedAgent(companyId);
+    await seedWatchdog(companyId, sourceId, agentId);
+    const { service, wakes } = createService();
+
+    await service.reconcileTaskWatchdogs({ companyId });
+    const [firstWatchdog] = await db.select().from(issueWatchdogs).where(eq(issueWatchdogs.issueId, sourceId));
+    const oldFingerprint = firstWatchdog!.lastObservedFingerprint!;
+    const watchdogIssueId = firstWatchdog!.watchdogIssueId!;
+    const watchdogRunId = randomUUID();
+    await db.insert(heartbeatRuns).values({
+      id: watchdogRunId,
+      companyId,
+      agentId,
+      status: "running",
+      invocationSource: "assignment",
+      contextSnapshot: { issueId: watchdogIssueId },
+    });
+
+    await db
+      .update(issues)
+      .set({ status: "blocked", updatedAt: new Date(Date.now() + 60_000) })
+      .where(eq(issues.id, childId));
+    const changedWhileReviewLive = await service.reconcileTaskWatchdogs({ companyId });
+    expect(changedWhileReviewLive).toMatchObject({ checked: 1, triggered: 0, live: 1 });
+
+    const [observedWhileLive] = await db.select().from(issueWatchdogs).where(eq(issueWatchdogs.issueId, sourceId));
+    const newerFingerprint = observedWhileLive!.lastObservedFingerprint!;
+    expect(newerFingerprint).not.toBe(oldFingerprint);
+    const [stillBoundReview] = await db.select().from(issues).where(eq(issues.id, watchdogIssueId));
+    expect(stillBoundReview?.originFingerprint).toBe(oldFingerprint);
+
+    await db.update(heartbeatRuns).set({ status: "succeeded" }).where(eq(heartbeatRuns.id, watchdogRunId));
+    await db.update(issues).set({ status: "done", updatedAt: new Date() }).where(eq(issues.id, watchdogIssueId));
+    const afterOldReviewCompletes = await service.reconcileTaskWatchdogs({ companyId });
+
+    expect(afterOldReviewCompletes).toMatchObject({ checked: 1, triggered: 1 });
+    const [reviewedWatchdog] = await db.select().from(issueWatchdogs).where(eq(issueWatchdogs.issueId, sourceId));
+    expect(reviewedWatchdog?.lastReviewedFingerprint).toBe(oldFingerprint);
+    expect(reviewedWatchdog?.lastReviewedFingerprint).not.toBe(newerFingerprint);
+    const [reopenedWatchdogIssue] = await db.select().from(issues).where(eq(issues.id, watchdogIssueId));
+    expect(reopenedWatchdogIssue).toMatchObject({
+      status: "todo",
+      originFingerprint: newerFingerprint,
+    });
+    const reviewActivities = await db
+      .select()
+      .from(activityLog)
+      .where(and(eq(activityLog.entityId, sourceId), eq(activityLog.action, "issue.task_watchdog_fingerprint_reviewed")));
+    expect(reviewActivities).toHaveLength(1);
+    expect(reviewActivities[0]?.details).toMatchObject({
+      reviewedFingerprint: oldFingerprint,
+      lastObservedFingerprint: newerFingerprint,
+    });
     expect(wakes.length).toBe(2);
   });
 

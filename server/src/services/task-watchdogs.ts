@@ -20,6 +20,7 @@ import { evaluateAgentInvokabilityFromDb } from "./agent-invokability.js";
 import { issueService } from "./issues.js";
 
 const TASK_WATCHDOG_ORIGIN_KIND = "task_watchdog";
+const TASK_WATCHDOG_STOP_FINGERPRINT_PREFIX = "task_watchdog_stop:";
 const TASK_WATCHDOG_LIVE_RUN_STATUSES = ["queued", "running", "scheduled_retry"] as const;
 const TASK_WATCHDOG_WAKE_REQUEST_STATUSES = ["queued", "deferred_issue_execution"] as const;
 const TASK_WATCHDOG_TERMINAL_ISSUE_STATUSES = ["done", "cancelled"] as const;
@@ -457,8 +458,18 @@ function issueIdFromWakePayload(payload: unknown) {
     readNonEmptyString(nested.taskId);
 }
 
-function taskWatchdogOriginFingerprint(companyId: string, watchedIssueId: string) {
-  return `task_watchdog:${companyId}:${watchedIssueId}`;
+function normalizeStopFingerprint(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  return trimmed?.startsWith(TASK_WATCHDOG_STOP_FINGERPRINT_PREFIX) ? trimmed : null;
+}
+
+function stopFingerprintFromText(value: string | null | undefined) {
+  const match = value?.match(/task_watchdog_stop:[a-f0-9]+/i);
+  return normalizeStopFingerprint(match?.[0] ?? null);
+}
+
+function reviewedFingerprintForWatchdogIssue(issue: Pick<IssueRow, "originFingerprint" | "description">) {
+  return normalizeStopFingerprint(issue.originFingerprint) ?? stopFingerprintFromText(issue.description);
 }
 
 function taskWatchdogWakeIdempotencyKey(watchdogId: string, stopFingerprint: string) {
@@ -536,6 +547,15 @@ function isTerminalIssueStatus(status: string) {
   return TASK_WATCHDOG_TERMINAL_ISSUE_STATUSES.includes(
     status as (typeof TASK_WATCHDOG_TERMINAL_ISSUE_STATUSES)[number],
   );
+}
+
+function isWatchdogReviewDisposition(issue: Pick<
+  IssueRow,
+  "status" | "assigneeUserId" | "executionState" | "monitorNextCheckAt"
+>, hasPendingReviewPath: boolean) {
+  if (issue.status === "done" || issue.status === "blocked") return true;
+  if (issue.status !== "in_review") return false;
+  return Boolean(issue.assigneeUserId || issue.executionState || issue.monitorNextCheckAt || hasPendingReviewPath);
 }
 
 function isActiveTaskWatchdogUniqueConflict(error: unknown) {
@@ -838,24 +858,74 @@ export function taskWatchdogService(db: Db, deps: TaskWatchdogServiceDeps = {}) 
     return Boolean(run || issueRun || wake);
   }
 
-  async function markTerminalWatchdogIssueReviewed(watchdog: IssueWatchdogRow) {
+  async function watchdogIssueHasPendingReviewPath(companyId: string, issueId: string) {
+    const [interaction, approval] = await Promise.all([
+      db
+        .select({ id: issueThreadInteractions.id })
+        .from(issueThreadInteractions)
+        .where(and(
+          eq(issueThreadInteractions.companyId, companyId),
+          eq(issueThreadInteractions.issueId, issueId),
+          eq(issueThreadInteractions.status, "pending"),
+        ))
+        .limit(1)
+        .then((rows) => rows[0] ?? null),
+      db
+        .select({ id: approvals.id })
+        .from(issueApprovals)
+        .innerJoin(approvals, eq(issueApprovals.approvalId, approvals.id))
+        .where(and(
+          eq(issueApprovals.companyId, companyId),
+          eq(issueApprovals.issueId, issueId),
+          inArray(approvals.status, ["pending", "revision_requested"]),
+        ))
+        .limit(1)
+        .then((rows) => rows[0] ?? null),
+    ]);
+    return Boolean(interaction || approval);
+  }
+
+  async function markTerminalWatchdogIssueReviewed(watchdog: IssueWatchdogRow, opts: { runId?: string | null } = {}) {
     if (!watchdog.watchdogIssueId || !watchdog.lastObservedFingerprint) return watchdog;
-    if (watchdog.lastReviewedFingerprint === watchdog.lastObservedFingerprint) return watchdog;
     const watchdogIssue = await db
-      .select({ id: issues.id, status: issues.status })
+      .select()
       .from(issues)
       .where(and(eq(issues.companyId, watchdog.companyId), eq(issues.id, watchdog.watchdogIssueId)))
       .then((rows) => rows[0] ?? null);
-    if (!watchdogIssue || !isTerminalIssueStatus(watchdogIssue.status)) return watchdog;
+    if (!watchdogIssue) return watchdog;
+    const hasPendingReviewPath = watchdogIssue.status === "in_review"
+      ? await watchdogIssueHasPendingReviewPath(watchdog.companyId, watchdogIssue.id)
+      : false;
+    if (!isWatchdogReviewDisposition(watchdogIssue, hasPendingReviewPath)) return watchdog;
+    const reviewedFingerprint = reviewedFingerprintForWatchdogIssue(watchdogIssue);
+    if (!reviewedFingerprint || watchdog.lastReviewedFingerprint === reviewedFingerprint) return watchdog;
     const [updated] = await db
       .update(issueWatchdogs)
       .set({
-        lastReviewedFingerprint: watchdog.lastObservedFingerprint,
+        lastReviewedFingerprint: reviewedFingerprint,
         lastCompletedAt: new Date(),
         updatedAt: new Date(),
       })
       .where(eq(issueWatchdogs.id, watchdog.id))
       .returning();
+    await logActivity(db, {
+      companyId: watchdog.companyId,
+      actorType: "system",
+      actorId: "system",
+      agentId: watchdog.watchdogAgentId,
+      runId: opts.runId ?? null,
+      action: "issue.task_watchdog_fingerprint_reviewed",
+      entityType: "issue",
+      entityId: watchdog.issueId,
+      details: {
+        source: "task_watchdogs.review_disposition",
+        watchdogId: watchdog.id,
+        watchdogIssueId: watchdogIssue.id,
+        reviewedFingerprint,
+        lastObservedFingerprint: watchdog.lastObservedFingerprint,
+        watchdogIssueStatus: watchdogIssue.status,
+      },
+    });
     return updated ?? watchdog;
   }
 
@@ -888,8 +958,16 @@ export function taskWatchdogService(db: Db, deps: TaskWatchdogServiceDeps = {}) 
           projectId: input.sourceIssue.projectId,
           goalId: input.sourceIssue.goalId,
           billingCode: input.sourceIssue.billingCode,
+          originFingerprint: input.classification.stopFingerprint,
         }) ?? fallback
         : fallback;
+      if (!shouldReopen && watchdogIssue.originFingerprint !== input.classification.stopFingerprint) {
+        await db
+          .update(issues)
+          .set({ originFingerprint: input.classification.stopFingerprint, updatedAt: new Date() })
+          .where(and(eq(issues.companyId, input.watchdog.companyId), eq(issues.id, watchdogIssue.id)));
+        watchdogIssue.originFingerprint = input.classification.stopFingerprint;
+      }
       await issuesSvc.addComment(
         watchdogIssue.id,
         buildStoppedFingerprintComment({
@@ -929,7 +1007,7 @@ export function taskWatchdogService(db: Db, deps: TaskWatchdogServiceDeps = {}) 
         assigneeAgentId: input.watchdog.watchdogAgentId,
         originKind: TASK_WATCHDOG_ORIGIN_KIND,
         originId: input.sourceIssue.id,
-        originFingerprint: taskWatchdogOriginFingerprint(input.sourceIssue.companyId, input.sourceIssue.id),
+        originFingerprint: input.classification.stopFingerprint,
         billingCode: input.sourceIssue.billingCode,
         inheritExecutionWorkspaceFromIssueId: input.sourceIssue.id,
       })
@@ -961,7 +1039,7 @@ export function taskWatchdogService(db: Db, deps: TaskWatchdogServiceDeps = {}) 
   }
 
   async function evaluateWatchdog(row: IssueWatchdogRow, opts: { runId?: string | null } = {}) {
-    const watchdog = await markTerminalWatchdogIssueReviewed(row);
+    const watchdog = await markTerminalWatchdogIssueReviewed(row, opts);
     const sourceIssue = await db
       .select()
       .from(issues)

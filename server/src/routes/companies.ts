@@ -71,7 +71,6 @@ export function companyRoutes(db: Db, storage?: StorageService) {
   async function assertSameCompanyCeoAgentOrBoard(req: Request, companyId: string, capability: string) {
     assertCompanyAccess(req, companyId);
     if (req.actor.type === "board") {
-      assertBoard(req);
       return;
     }
     if (!req.actor.agentId) throw forbidden("Agent authentication required");

@@ -22,9 +22,10 @@ interface SpawnRunnerHandle {
 // A runner that actually executes the shell scripts (piping stdin through a real
 // pipe so multi-MB payloads work) and replays stdout through onLog in several
 // chunks so the streaming readFile byte-counter is exercised.
-function makeSpawnRunner(): SpawnRunnerHandle {
+function makeSpawnRunner(options: { supportsSingleStreamStdinProgress?: boolean } = {}): SpawnRunnerHandle {
   const calls: Array<{ command: string; args?: string[]; cwd?: string; stdin?: string }> = [];
   const runner: CommandManagedRuntimeRunner = {
+    supportsSingleStreamStdinProgress: options.supportsSingleStreamStdinProgress,
     execute: async (input) =>
       await new Promise<RunProcessResult>((resolve) => {
         calls.push({ command: input.command, args: input.args, cwd: input.cwd, stdin: input.stdin });
@@ -238,7 +239,7 @@ describe("command managed runtime", () => {
     const payload = Buffer.alloc(3 * 1024 * 1024);
     for (let i = 0; i < payload.length; i++) payload[i] = i % 256;
 
-    const { runner, calls } = makeSpawnRunner();
+    const { runner, calls } = makeSpawnRunner({ supportsSingleStreamStdinProgress: true });
     const client = createCommandManagedRuntimeClient({ runner, commandCwd: "/", timeoutMs: 30_000 });
 
     const progress: Array<{ done: number; total: number | null }> = [];
@@ -257,6 +258,37 @@ describe("command managed runtime", () => {
 
     // Progress is monotonically non-decreasing and reaches the total.
     expect(progress.length).toBeGreaterThan(0);
+    for (let i = 1; i < progress.length; i++) {
+      expect(progress[i].done).toBeGreaterThanOrEqual(progress[i - 1].done);
+    }
+    expect(progress.at(-1)).toEqual({ done: payload.length, total: payload.length });
+  });
+
+  it("falls back to chunked upload progress when the runner cannot report mid-stream stdin progress", async () => {
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "paperclip-command-write-fallback-"));
+    cleanupDirs.push(rootDir);
+    const remotePath = path.join(rootDir, "nested", "payload.bin");
+
+    const payload = Buffer.alloc(12 * 1024 * 1024);
+    for (let i = 0; i < payload.length; i++) payload[i] = i % 256;
+
+    const { runner, calls } = makeSpawnRunner({ supportsSingleStreamStdinProgress: false });
+    const client = createCommandManagedRuntimeClient({ runner, commandCwd: "/", timeoutMs: 30_000 });
+
+    const progress: Array<{ done: number; total: number | null }> = [];
+    await client.writeFile(remotePath, toArrayBuffer(payload), {
+      onProgress: (done, total) => {
+        progress.push({ done, total });
+      },
+    });
+
+    const written = await readFile(remotePath);
+    expect(written.equals(payload)).toBe(true);
+
+    // Provider-backed sandbox runners cannot surface mid-flight progress for a
+    // single stdin RPC, so we intentionally use several large append commands.
+    expect(calls.length).toBeGreaterThan(2);
+    expect(progress.length).toBeGreaterThan(2);
     for (let i = 1; i < progress.length; i++) {
       expect(progress[i].done).toBeGreaterThanOrEqual(progress[i - 1].done);
     }

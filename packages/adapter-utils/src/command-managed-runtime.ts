@@ -11,6 +11,13 @@ import type { RunProcessResult } from "./server-utils.js";
 import type { RuntimeProgressSink } from "./runtime-progress.js";
 
 export interface CommandManagedRuntimeRunner {
+  /**
+   * True only when `execute({ stdin })` can surface useful in-flight progress
+   * for a single stdin-backed command. Provider-backed sandbox runners usually
+   * complete the entire RPC before returning, so they should leave this false
+   * and let the caller choose a chunked upload path when progress is requested.
+   */
+  supportsSingleStreamStdinProgress?: boolean;
   execute(input: {
     command: string;
     args?: string[];
@@ -100,13 +107,18 @@ export function createCommandManagedRuntimeClient(input: {
       const body = buffer.toString("base64");
       const remoteDir = path.posix.dirname(remotePath);
       const remoteTempPath = `${remotePath}.paperclip-upload`;
+      const canUseSingleStreamProgressPath =
+        !options?.onProgress || input.runner.supportsSingleStreamStdinProgress === true;
 
       // Primary path: a single round-trip. Stream the entire base64 body to one
       // `base64 -d` process via stdin, decode straight into a temp file, then
       // atomically rename into place. This replaces the previous loop that did
       // one `printf >> tmpfile` shell round-trip per 32 KB — thousands of serial
       // processes for a large workspace — with exactly one process.
-      if (body.length <= REMOTE_WRITE_SINGLE_STREAM_MAX_BASE64_BYTES) {
+      if (
+        body.length <= REMOTE_WRITE_SINGLE_STREAM_MAX_BASE64_BYTES &&
+        canUseSingleStreamProgressPath
+      ) {
         await options?.onProgress?.(0, total);
         await runShell(
           `mkdir -p ${shellQuote(remoteDir)} && ` +

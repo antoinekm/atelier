@@ -676,6 +676,8 @@ pnpm paperclipai llm agent-configuration:adapter <adapter-type>
 pnpm paperclipai llm agent-icons
 ```
 
+Experimental features are opt-in and are provided without compatibility guarantees. They may break, change, or be removed at any time. Use them at your own risk.
+
 ## Adapter, Asset, And Skill Commands
 
 ```sh

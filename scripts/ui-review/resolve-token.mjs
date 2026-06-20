@@ -8,8 +8,8 @@
 // be checked inline during a single-pass UI review (see scripts/ui-review/README.md).
 //
 // Source of truth: ui/src/index.css custom properties (`:root` = light theme,
-// `.dark` = dark theme). The WCAG math is the formalized version of the ad-hoc
-// ratio calc QA ran on PAP-228.
+// `.dark` = dark theme). The WCAG math is the formalized version of the
+// reviewer contrast calculation.
 //
 // Usage:
 //   node scripts/ui-review/resolve-token.mjs <token> [--theme light|dark]
@@ -300,10 +300,24 @@ function selfCheck() {
 function parseArgs(argv) {
   const flags = { theme: 'light', css: DEFAULT_CSS, json: false };
   const positional = [];
+  const readFlagValue = (index, flag) => {
+    const value = argv[index + 1];
+    if (!value || value.startsWith('-')) {
+      throw new Error(`${flag} needs a value`);
+    }
+    return value;
+  };
+
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--theme') flags.theme = argv[++i];
-    else if (a === '--css') flags.css = argv[++i];
+    if (a === '--theme') {
+      flags.theme = readFlagValue(i, a);
+      i++;
+    }
+    else if (a === '--css') {
+      flags.css = readFlagValue(i, a);
+      i++;
+    }
     else if (a === '--json') flags.json = true;
     else if (a === '--selfcheck' || a === '--help' || a === '-h') positional.push(a);
     else positional.push(a);
@@ -326,7 +340,14 @@ const HELP = `resolve-token.mjs — Paperclip design-token + WCAG resolver
 `;
 
 function main() {
-  const { flags, positional } = parseArgs(process.argv.slice(2));
+  let parsed;
+  try {
+    parsed = parseArgs(process.argv.slice(2));
+  } catch (e) {
+    process.stderr.write(`ERROR: ${e.message}\n`);
+    process.exit(2);
+  }
+  const { flags, positional } = parsed;
 
   if (positional.includes('--help') || positional.includes('-h') || positional.length === 0) {
     process.stdout.write(HELP);

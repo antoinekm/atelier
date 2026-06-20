@@ -7,9 +7,8 @@ items (contrast, focus-ring visibility, mobile 390×844, long-thread scroll) in 
 **single pass** — one verdict in one heartbeat — instead of a UX→QA two-ticket
 handoff.
 
-This documents the **existing** flow QA built ad-hoc on
-[PAP-228](/PAP/issues/PAP-228) on top of the provisioner from
-[PAP-235](/PAP/issues/PAP-235). It does not re-architect provisioning.
+This documents the **existing** headless-render flow on top of the shared
+Chromium provisioner. It does not re-architect provisioning.
 
 > When to use which: render the surface for visual/interaction craft (this
 > recipe, part 1); resolve a token or check a contrast ratio numerically without
@@ -97,9 +96,8 @@ Tribal-knowledge mechanics, all captured here:
 - **Dark mode is a `class` toggle**, not a query param. Set it on the iframe's
   document root before screenshotting:
   `document.documentElement.classList.add('dark')`.
-- **Viewport conventions:** desktop **1440×900**, mobile **390×844** — the same
-  pair named in the [UI Review Standard](/PAP/issues/PAP-223#document-ui-review-standard)
-  and the UXDesigner Visual-truth gate.
+- **Viewport conventions:** desktop **1440×900**, mobile **390×844** — the
+  standard pair used by the UXDesigner Visual-truth gate.
 
 Example `render-stories.mjs` (write to `/tmp`, adjust the `STORY_IDS`):
 
@@ -193,9 +191,8 @@ AAA normal (>=7.0): FAIL
 AAA large  (>=4.5): PASS
 ```
 
-The contrast math is the formalized version of the ad-hoc ratio calc QA ran on
-PAP-228; `--selfcheck` proves it against the canonical black/white = 21:1 pair
-(plus oklch round-trips).
+The contrast math is a formalized WCAG ratio calculation; `--selfcheck` proves
+it against the canonical black/white = 21:1 pair (plus oklch round-trips).
 
 ---
 
@@ -203,7 +200,6 @@ PAP-228; `--selfcheck` proves it against the canonical black/white = 21:1 pair
 
 - **Single-pass is the default.** Render-dependent items — contrast, focus-ring
   visibility, mobile 390×844, long-thread scroll — should be closed inline using
-  this recipe + resolver and a cited rendered viewport, per the
-  [UI Review Standard](/PAP/issues/PAP-223#document-ui-review-standard).
+  this recipe + resolver and a cited rendered viewport.
 - **QA handoff is the fallback only** when a surface is genuinely unrenderable
   (auth-gated / sandbox-denied) — not the default for render-dependent checks.

@@ -44,6 +44,7 @@ import {
   reconcileCodexLocalManagedHomesOnStartup,
   reconcilePersistedRuntimeServicesOnStartup,
   routineService,
+  agentMemoryConsolidationService,
 } from "./services/index.js";
 import {
   parseAdapterRegistryEnv,
@@ -776,6 +777,7 @@ export async function startServer(): Promise<StartedServer> {
   if (config.heartbeatSchedulerEnabled) {
     const heartbeat = heartbeatService(db as any, { pluginWorkerManager });
     const routines = routineService(db as any, { pluginWorkerManager });
+    const memoryConsolidation = agentMemoryConsolidationService(db as any);
 
     // Reap orphaned runs before timer ticks start so wakeups cannot coalesce
     // into a dead "running" row during startup recovery.
@@ -873,6 +875,19 @@ export async function startServer(): Promise<StartedServer> {
         .catch((err) => {
           logger.error({ err }, "routine scheduler tick failed");
         });
+
+      if (config.memoryConsolidationEnabled) {
+        void memoryConsolidation
+          .tickMemoryConsolidation(new Date())
+          .then((result) => {
+            if (result.processed > 0) {
+              logger.info({ ...result }, "memory consolidation tick processed agents");
+            }
+          })
+          .catch((err) => {
+            logger.error({ err }, "memory consolidation tick failed");
+          });
+      }
   
       // Periodically reap orphaned runs (5-min staleness threshold) and make sure
       // persisted queued work is still being driven forward.

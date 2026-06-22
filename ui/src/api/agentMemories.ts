@@ -12,4 +12,15 @@ export const agentMemoriesApi = {
     api.post<AgentMemory>(`/agents/${agentId}/memories/${memoryId}/forget`, {}),
   correct: (agentId: string, memoryId: string, body: CorrectAgentMemory) =>
     api.post<AgentMemory>(`/agents/${agentId}/memories/${memoryId}/correct`, body),
+  consolidate: (agentId: string) =>
+    api.post<ConsolidationResult>(`/agents/${agentId}/memories/consolidate`, {}),
 };
+
+export interface ConsolidationResult {
+  runId: string;
+  status: "completed" | "failed";
+  ingested: number;
+  staged: number;
+  promoted: number;
+  forgotten: number;
+}

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { AgentMemory, AgentMemoryType } from "@paperclipai/shared";
-import { agentMemoriesApi } from "../api/agentMemories";
+import { agentMemoriesApi, type ConsolidationResult } from "../api/agentMemories";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,7 @@ export function AgentMemoryTab({ agentId }: { agentId: string }) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [tags, setTags] = useState("");
+  const [lastRun, setLastRun] = useState<ConsolidationResult | null>(null);
 
   const { data: memories = [], isLoading, error } = useQuery({
     queryKey: memoriesKey(agentId),
@@ -71,6 +72,20 @@ export function AgentMemoryTab({ agentId }: { agentId: string }) {
       void invalidate();
     },
     onError: (err) => pushToast({ title: "Forget failed", body: String(err), tone: "error" }),
+  });
+
+  const consolidateMutation = useMutation({
+    mutationFn: () => agentMemoriesApi.consolidate(agentId),
+    onSuccess: (result) => {
+      setLastRun(result);
+      pushToast({
+        title: "Consolidation done",
+        body: `staged ${result.staged}, promoted ${result.promoted}, forgotten ${result.forgotten}`,
+        tone: "success",
+      });
+      void invalidate();
+    },
+    onError: (err) => pushToast({ title: "Consolidation failed", body: String(err), tone: "error" }),
   });
 
   const grouped = useMemo(() => {
@@ -128,9 +143,27 @@ export function AgentMemoryTab({ agentId }: { agentId: string }) {
       </section>
 
       <section className="space-y-4">
-        <h3 className="text-sm font-semibold text-foreground">
-          Memories <span className="text-muted-foreground">({memories.length})</span>
-        </h3>
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold text-foreground">
+            Memories <span className="text-muted-foreground">({memories.length})</span>
+          </h3>
+          <div className="flex items-center gap-3">
+            {lastRun && (
+              <span className="text-xs text-muted-foreground">
+                last dream: +{lastRun.staged} staged, ↑{lastRun.promoted} promoted, ✕{lastRun.forgotten} forgotten
+              </span>
+            )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={consolidateMutation.isPending}
+              onClick={() => consolidateMutation.mutate()}
+            >
+              {consolidateMutation.isPending ? "Dreaming..." : "Run consolidation"}
+            </Button>
+          </div>
+        </div>
         {isLoading && <p className="text-sm text-muted-foreground">Loading...</p>}
         {error && <p className="text-sm text-destructive">Failed to load memories.</p>}
         {!isLoading && memories.length === 0 && (

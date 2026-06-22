@@ -6,15 +6,21 @@ import {
   correctAgentMemorySchema,
 } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
-import { agentMemoryService, agentService, logActivity } from "../services/index.js";
+import {
+  agentMemoryConsolidationService,
+  agentMemoryService,
+  agentService,
+  logActivity,
+} from "../services/index.js";
 import { forbidden, notFound } from "../errors.js";
-import { assertCompanyAccess, getActorInfo } from "./authz.js";
+import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 import type { MemoryActor } from "../services/agent-memories.js";
 
 export function agentMemoryRoutes(db: Db) {
   const router = Router();
   const agents = agentService(db);
   const svc = agentMemoryService(db);
+  const consolidation = agentMemoryConsolidationService(db);
 
   /**
    * Resolve the target agent, enforce company access, and enforce that an agent
@@ -120,6 +126,18 @@ export function agentMemoryRoutes(db: Db) {
       res.status(201).json(memory);
     },
   );
+
+  // Run one consolidation ("dreaming") pass now. Board-only; useful for QA and a
+  // "Run consolidation" button. The scheduler runs this automatically on cadence.
+  router.post("/agents/:agentId/memories/consolidate", async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const agent = await agents.getById(agentId);
+    if (!agent) throw notFound("Agent not found");
+    assertCompanyAccess(req, agent.companyId);
+    assertBoard(req);
+    const result = await consolidation.consolidateAgentMemories(agent.companyId, agentId);
+    res.json(result);
+  });
 
   return router;
 }

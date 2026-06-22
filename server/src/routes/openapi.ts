@@ -130,6 +130,9 @@ import {
   remoteSecretImportSchema,
   workspaceFileListQuerySchema,
   workspaceFileResourceQuerySchema,
+  createAgentMemorySchema,
+  recallAgentMemorySchema,
+  correctAgentMemorySchema,
 } from "@paperclipai/shared";
 
 type JsonSchema = Record<string, unknown>;
@@ -4515,6 +4518,55 @@ for (const route of [
     ...(route[0] === "post" || route[0] === "put" ? { body: pluginLocalFolderRequestSchema } : {}),
   });
 }
+
+// Agent long-term memory
+registerCurrentRoute({
+  method: "get",
+  path: "/api/agents/{agentId}/memories",
+  tags: ["agents"],
+  summary: "List an agent's long-term memories",
+});
+registerCurrentRoute({
+  method: "get",
+  path: "/api/agents/{agentId}/memories/markdown",
+  tags: ["agents"],
+  summary: "Render an agent's active memories as MEMORY.md",
+});
+registerCurrentRoute({
+  method: "post",
+  path: "/api/agents/{agentId}/memories",
+  tags: ["agents"],
+  summary: "Write an agent memory",
+  body: createAgentMemorySchema,
+  responses: { 201: r.ok(), 400: r.badRequest, 401: r.unauthorized, 404: r.notFound },
+});
+registerCurrentRoute({
+  method: "post",
+  path: "/api/agents/{agentId}/memories/recall",
+  tags: ["agents"],
+  summary: "Recall an agent's memories",
+  body: recallAgentMemorySchema,
+});
+registerCurrentRoute({
+  method: "post",
+  path: "/api/agents/{agentId}/memories/{memoryId}/forget",
+  tags: ["agents"],
+  summary: "Forget an agent memory",
+});
+registerCurrentRoute({
+  method: "post",
+  path: "/api/agents/{agentId}/memories/{memoryId}/correct",
+  tags: ["agents"],
+  summary: "Correct an agent memory (supersede the old one)",
+  body: correctAgentMemorySchema,
+  responses: { 201: r.ok(), 400: r.badRequest, 401: r.unauthorized, 404: r.notFound },
+});
+registerCurrentRoute({
+  method: "post",
+  path: "/api/agents/{agentId}/memories/consolidate",
+  tags: ["agents"],
+  summary: "Run a memory consolidation (dreaming) pass for an agent",
+});
 
 // ─── Spec builder ─────────────────────────────────────────────────────────────
 

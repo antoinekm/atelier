@@ -106,6 +106,7 @@ import {
 import { issueService } from "./issues.js";
 import { agentMemoryService } from "./agent-memories.js";
 import { agentMcpServerService } from "./agent-mcp-servers.js";
+import { renderCapabilityRequestGuide } from "./capability-requests.js";
 import {
   buildIssueMonitorClearedPatch,
   buildIssueMonitorTriggeredPatch,
@@ -8615,6 +8616,10 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     } else {
       delete context.paperclipMcpServers;
     }
+    // Capability-request guide (issue #2): always tell the agent it can request a
+    // tool/MCP, skill, or plugin via the approvals API. claude_local agents use the
+    // REST API (not an MCP tool), so without this they never discover the path.
+    context.paperclipCapabilityGuide = renderCapabilityRequestGuide(agent.companyId);
     const existingExecutionWorkspace =
       issueRef?.executionWorkspaceId ? await executionWorkspacesSvc.getById(issueRef.executionWorkspaceId) : null;
     const requestedShouldReuseExisting =

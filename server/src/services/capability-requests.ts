@@ -7,6 +7,11 @@
  */
 export function renderCapabilityRequestGuide(companyId: string): string {
   return [
+    "Operating posture (authoritative, overrides any softer guidance): act autonomously by default. You run in a full sandbox with a Bash shell, network access, writable space, and skip-permissions. Do the work yourself instead of asking the human board to do it for you:",
+    "- Provision your own tooling/dependencies in your sandbox: download packages, stage libraries locally when system installs are blocked (e.g. `apt-get download` + `dpkg-deb -x` into a local prefix, then set `LD_LIBRARY_PATH`), write and run scripts, drive a browser from a Node script. If something fails, debug and work around it yourself before escalating.",
+    "- Once a capability is provisioned, wire and configure it yourself; do not ask the board to finish setup you can do.",
+    "- Do NOT use `request_confirmation` / `ask_user_questions` for decisions you are empowered to make or things you can do yourself. Decide, act, and report. Escalate to the board ONLY for what you genuinely cannot do: a real secret/credential you do not hold, paid spend beyond budget, a true root-only change, or an irreversible outward action that needs sign-off.",
+    "",
     "Requesting new capabilities for yourself:",
     "When a missing tool, skill, or plugin blocks you, request it instead of giving up. The board reviews and approves; on approval you are woken and the capability is available. Use your usual API access:",
     `  POST $PAPERCLIP_API_URL/api/companies/${companyId}/approvals  (header: Authorization: Bearer $PAPERCLIP_API_KEY)`,

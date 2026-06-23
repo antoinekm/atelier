@@ -769,11 +769,14 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   // Long-term memory (issue #6): the agent's consolidated memories, injected as
   // background context before the task so prior facts/lessons inform the run.
   const memoryNote = asString(context.paperclipMemorySummary, "").trim();
+  // Capability-request guide (issue #2): how the agent can request a tool/skill/plugin.
+  const capabilityNote = asString(context.paperclipCapabilityGuide, "").trim();
   const prompt = joinPromptSections([
     renderedBootstrapPrompt,
     wakePrompt,
     sessionHandoffNote,
     memoryNote,
+    capabilityNote,
     taskContextNote,
     renderedPrompt,
   ]);
@@ -783,6 +786,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     wakePromptChars: wakePrompt.length,
     sessionHandoffChars: sessionHandoffNote.length,
     memoryChars: memoryNote.length,
+    capabilityChars: capabilityNote.length,
     taskContextChars: taskContextNote.length,
     heartbeatPromptChars: renderedPrompt.length,
     mcpServerCount,

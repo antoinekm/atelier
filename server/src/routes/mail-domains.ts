@@ -1,18 +1,19 @@
 import { Router } from "express";
 import type { Db } from "@paperclipai/db";
-import { attachDomainSchema } from "@paperclipai/shared";
+import { attachDomainSchema, createMailAddressSchema } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
-import { mailDomainService, logActivity } from "../services/index.js";
+import { mailDomainService, mailAddressService, logActivity } from "../services/index.js";
 import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 
 /**
- * Mail domains for embedded mail (phase 0). Board-only: a human attaches an
- * existing Cloudflare zone, the platform generates DKIM and publishes the mail
- * DNS records. Domain registration is out of scope for V1.
+ * Mail domains + company-level mail addresses for embedded mail. Board-only: a
+ * human attaches an existing Cloudflare zone (phase 0) and manages the mailboxes
+ * on it (phase 1).
  */
 export function mailDomainRoutes(db: Db) {
   const router = Router();
   const svc = mailDomainService(db);
+  const addressSvc = mailAddressService(db);
 
   // List attached mail domains.
   router.get("/companies/:companyId/mail/domains", async (req, res) => {
@@ -84,6 +85,53 @@ export function mailDomainRoutes(db: Db) {
       entityId: id,
       details: { domain: domain.domain },
     });
+    res.status(204).end();
+  });
+
+  // ─── Mail addresses (company-level management, phase 1) ───────────────────
+
+  // List all mail addresses in the company.
+  router.get("/companies/:companyId/mail/addresses", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    assertBoard(req);
+    res.json(await addressSvc.list(companyId));
+  });
+
+  // Create an address (assign an owning agent, or leave shared / catch-all).
+  router.post(
+    "/companies/:companyId/mail/addresses",
+    validate(createMailAddressSchema),
+    async (req, res) => {
+      const companyId = req.params.companyId as string;
+      assertCompanyAccess(req, companyId);
+      assertBoard(req);
+      const info = getActorInfo(req);
+      const address = await addressSvc.create(companyId, req.body.agentId ?? null, req.body, {
+        actorType: info.actorType,
+        actorId: info.actorId,
+      });
+      await logActivity(db, {
+        companyId,
+        actorType: "user",
+        actorId: info.actorId,
+        action: "mail_address_created",
+        entityType: "mail_address",
+        entityId: address.id,
+        agentId: address.agentId,
+        details: { address: address.address, kind: address.kind, source: "board" },
+      });
+      res.status(201).json(address);
+    },
+  );
+
+  // Delete an address.
+  router.delete("/companies/:companyId/mail/addresses/:id", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    const id = req.params.id as string;
+    assertCompanyAccess(req, companyId);
+    assertBoard(req);
+    await addressSvc.remove(companyId, id);
     res.status(204).end();
   });
 

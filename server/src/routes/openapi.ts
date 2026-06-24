@@ -4679,6 +4679,27 @@ registerCurrentRoute({
   summary: "Detach a mail domain",
   responses: { 204: r.noContent, 401: r.unauthorized, 404: r.notFound },
 });
+registerCurrentRoute({
+  method: "get",
+  path: "/api/companies/{companyId}/mail/addresses",
+  tags: ["companies"],
+  summary: "List the company's mail addresses",
+});
+registerCurrentRoute({
+  method: "post",
+  path: "/api/companies/{companyId}/mail/addresses",
+  tags: ["companies"],
+  summary: "Create a mail address",
+  body: createMailAddressSchema,
+  responses: { 201: r.ok(), 400: r.badRequest, 401: r.unauthorized, 404: r.notFound },
+});
+registerCurrentRoute({
+  method: "delete",
+  path: "/api/companies/{companyId}/mail/addresses/{id}",
+  tags: ["companies"],
+  summary: "Delete a mail address",
+  responses: { 204: r.noContent, 401: r.unauthorized, 404: r.notFound },
+});
 
 // ─── Agent email (embedded mail, reception) ─────────────────────────────────
 registerCurrentRoute({

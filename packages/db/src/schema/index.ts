@@ -27,6 +27,7 @@ export { cloudflareConnections } from "./cloudflare_connections.js";
 export { mailDomains } from "./mail_domains.js";
 export { mailAddresses } from "./mail_addresses.js";
 export { mailMessages } from "./mail_messages.js";
+export { mailMessageAttachments } from "./mail_message_attachments.js";
 export { projects } from "./projects.js";
 export { projectMemberships } from "./project_memberships.js";
 export { projectWorkspaces } from "./project_workspaces.js";

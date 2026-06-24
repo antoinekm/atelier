@@ -1,21 +1,69 @@
-import { Router, type Request } from "express";
+import { Router, type Request, type Response } from "express";
+import multer from "multer";
 import type { Db } from "@paperclipai/db";
-import { createMailAddressSchema, mailInboxQuerySchema, sendEmailSchema } from "@paperclipai/shared";
+import {
+  createMailAddressSchema,
+  draftSchema,
+  mailFlagSchema,
+  mailInboxQuerySchema,
+  mailListQuerySchema,
+  sendEmailSchema,
+} from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
 import { agentService, mailAddressService, mailMessageService, logActivity } from "../services/index.js";
 import { forbidden, notFound, unprocessable } from "../errors.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import type { MailAddressActor } from "../services/mail-addresses.js";
+import type { StorageService } from "../storage/types.js";
+import {
+  isInlineAttachmentContentType,
+  normalizeContentType,
+  MAX_ATTACHMENT_BYTES,
+} from "../attachment-types.js";
+
+type ParsedRange = { kind: "none" } | { kind: "invalid" } | { kind: "range"; start: number; end: number };
+
+function parseRangeHeader(raw: string | undefined, contentLength: number): ParsedRange {
+  if (!raw) return { kind: "none" };
+  if (!Number.isSafeInteger(contentLength) || contentLength <= 0) return { kind: "invalid" };
+  const prefix = "bytes=";
+  if (!raw.toLowerCase().startsWith(prefix)) return { kind: "invalid" };
+  const spec = raw.slice(prefix.length).trim();
+  if (!spec || spec.includes(",")) return { kind: "invalid" };
+  const [startRaw, endRaw] = spec.split("-", 2);
+  if (endRaw === undefined) return { kind: "invalid" };
+  if (startRaw === "") {
+    const suffix = Number.parseInt(endRaw, 10);
+    if (!Number.isSafeInteger(suffix) || suffix <= 0) return { kind: "invalid" };
+    return { kind: "range", start: Math.max(contentLength - suffix, 0), end: contentLength - 1 };
+  }
+  const start = Number.parseInt(startRaw, 10);
+  if (!Number.isSafeInteger(start) || start < 0 || start >= contentLength) return { kind: "invalid" };
+  const end = endRaw === "" ? contentLength - 1 : Number.parseInt(endRaw, 10);
+  if (!Number.isSafeInteger(end) || end < start) return { kind: "invalid" };
+  return { kind: "range", start, end: Math.min(end, contentLength - 1) };
+}
 
 /**
- * Agent-facing email (embedded mail, phase 1): an agent manages its own
- * addresses and reads its inbox. Board members can also act for an agent.
+ * Agent-facing email (embedded mail). An agent manages its own addresses and
+ * mailbox; board members can also act for any agent in their company. This is
+ * the API behind the per-agent mail client (mini Gmail).
  */
-export function agentEmailRoutes(db: Db) {
+export function agentEmailRoutes(db: Db, storage: StorageService) {
   const router = Router();
   const agents = agentService(db);
   const addresses = mailAddressService(db);
   const messages = mailMessageService(db);
+
+  const attachmentUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: MAX_ATTACHMENT_BYTES, files: 1 },
+  });
+  async function runUpload(req: Request, res: Response) {
+    await new Promise<void>((resolve, reject) => {
+      attachmentUpload.single("file")(req, res, (err: unknown) => (err ? reject(err) : resolve()));
+    });
+  }
 
   async function resolveContext(
     req: Request,
@@ -31,14 +79,14 @@ export function agentEmailRoutes(db: Db) {
     return { companyId: agent.companyId, actor: { actorType: info.actorType, actorId: info.actorId } };
   }
 
-  // List the agent's addresses.
+  // ─── Addresses ────────────────────────────────────────────────────────────
+
   router.get("/agents/:agentId/email/addresses", async (req, res) => {
     const agentId = req.params.agentId as string;
     const { companyId } = await resolveContext(req, agentId);
     res.json(await addresses.list(companyId, { agentId }));
   });
 
-  // Create an address for the agent.
   router.post("/agents/:agentId/email/addresses", validate(createMailAddressSchema), async (req, res) => {
     const agentId = req.params.agentId as string;
     const { companyId, actor } = await resolveContext(req, agentId);
@@ -56,7 +104,6 @@ export function agentEmailRoutes(db: Db) {
     res.status(201).json(address);
   });
 
-  // Delete an address.
   router.delete("/agents/:agentId/email/addresses/:id", async (req, res) => {
     const agentId = req.params.agentId as string;
     const id = req.params.id as string;
@@ -67,7 +114,33 @@ export function agentEmailRoutes(db: Db) {
     res.status(204).end();
   });
 
-  // Read the agent's inbox.
+  // ─── Mailbox: folders, list, threads, messages ────────────────────────────
+
+  // Folder/search/paginated/threaded list (the mini-Gmail message list).
+  router.get("/agents/:agentId/email/messages", async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const { companyId } = await resolveContext(req, agentId);
+    const parsed = mailListQuerySchema.safeParse(req.query);
+    if (!parsed.success) throw unprocessable("Invalid list query");
+    res.json(await messages.listFolder(companyId, agentId, parsed.data));
+  });
+
+  // Unread counts per folder (for the rail badges).
+  router.get("/agents/:agentId/email/folders", async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const { companyId } = await resolveContext(req, agentId);
+    res.json(await messages.folderCounts(companyId, agentId));
+  });
+
+  // A full conversation thread.
+  router.get("/agents/:agentId/email/threads/:threadId", async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const threadId = req.params.threadId as string;
+    const { companyId } = await resolveContext(req, agentId);
+    res.json(await messages.getThread(companyId, agentId, threadId));
+  });
+
+  // Legacy inbox listing (agent run-context API contract).
   router.get("/agents/:agentId/email/inbox", async (req, res) => {
     const agentId = req.params.agentId as string;
     const { companyId } = await resolveContext(req, agentId);
@@ -76,7 +149,7 @@ export function agentEmailRoutes(db: Db) {
     res.json(await messages.listInbox(companyId, agentId, parsed.data));
   });
 
-  // Fetch one message.
+  // Fetch one message (with attachments).
   router.get("/agents/:agentId/email/messages/:id", async (req, res) => {
     const agentId = req.params.agentId as string;
     const id = req.params.id as string;
@@ -86,7 +159,159 @@ export function agentEmailRoutes(db: Db) {
     res.json(message);
   });
 
-  // Send (or reply to) an email from one of the agent's addresses.
+  // ─── Flags / trash / restore / delete / retry ─────────────────────────────
+
+  router.patch("/agents/:agentId/email/messages/:id/flags", validate(mailFlagSchema), async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const id = req.params.id as string;
+    const { companyId } = await resolveContext(req, agentId);
+    const message = await messages.getById(companyId, id);
+    if (message.agentId !== agentId) throw forbidden("This message does not belong to the agent");
+    res.json(await messages.setFlags(companyId, id, req.body));
+  });
+
+  router.post("/agents/:agentId/email/messages/:id/trash", async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const id = req.params.id as string;
+    const { companyId } = await resolveContext(req, agentId);
+    const message = await messages.getById(companyId, id);
+    if (message.agentId !== agentId) throw forbidden("This message does not belong to the agent");
+    res.json(await messages.trash(companyId, id));
+  });
+
+  router.post("/agents/:agentId/email/messages/:id/restore", async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const id = req.params.id as string;
+    const { companyId } = await resolveContext(req, agentId);
+    const message = await messages.getById(companyId, id);
+    if (message.agentId !== agentId) throw forbidden("This message does not belong to the agent");
+    res.json(await messages.restore(companyId, id));
+  });
+
+  router.post("/agents/:agentId/email/messages/:id/retry", async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const id = req.params.id as string;
+    const { companyId } = await resolveContext(req, agentId);
+    const message = await messages.getById(companyId, id);
+    if (message.agentId !== agentId) throw forbidden("This message does not belong to the agent");
+    const queued = await messages.retry(companyId, id);
+    res.status(202).json(queued);
+  });
+
+  router.delete("/agents/:agentId/email/messages/:id", async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const id = req.params.id as string;
+    const { companyId } = await resolveContext(req, agentId);
+    const message = await messages.getById(companyId, id);
+    if (message.agentId !== agentId) throw forbidden("This message does not belong to the agent");
+    const { objectKeys } = await messages.hardDelete(companyId, id);
+    await Promise.all(objectKeys.map((key) => storage.deleteObject(companyId, key).catch(() => {})));
+    res.status(204).end();
+  });
+
+  router.post("/agents/:agentId/email/messages/:id/read", async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const id = req.params.id as string;
+    const { companyId } = await resolveContext(req, agentId);
+    const message = await messages.getById(companyId, id);
+    if (message.agentId !== agentId) throw forbidden("This message does not belong to the agent");
+    res.json(await messages.markRead(companyId, id));
+  });
+
+  // ─── Attachments: upload (stage) + download ───────────────────────────────
+
+  router.post("/agents/:agentId/email/attachments", async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const { companyId } = await resolveContext(req, agentId);
+    try {
+      await runUpload(req, res);
+    } catch (err) {
+      if (err instanceof multer.MulterError) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          res.status(422).json({ error: `File exceeds ${MAX_ATTACHMENT_BYTES} bytes` });
+          return;
+        }
+        res.status(400).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
+    const file = (req as Request & { file?: { mimetype: string; buffer: Buffer; originalname: string } }).file;
+    if (!file || file.buffer.length === 0) {
+      res.status(400).json({ error: "Missing or empty file field 'file'" });
+      return;
+    }
+    const contentType = normalizeContentType(file.mimetype);
+    const stored = await storage.putFile({
+      companyId,
+      namespace: `mail/${agentId}`,
+      originalFilename: file.originalname || null,
+      contentType,
+      body: file.buffer,
+    });
+    const attachment = await messages.recordAttachment(companyId, null, {
+      direction: "outbound",
+      provider: stored.provider,
+      objectKey: stored.objectKey,
+      contentType: stored.contentType,
+      byteSize: stored.byteSize,
+      sha256: stored.sha256,
+      originalFilename: stored.originalFilename,
+    });
+    res.status(201).json({
+      ...attachment,
+      contentPath: `/api/agents/${agentId}/email/attachments/${attachment.id}/content`,
+    });
+  });
+
+  router.get("/agents/:agentId/email/attachments/:id/content", async (req, res, next) => {
+    const agentId = req.params.agentId as string;
+    const id = req.params.id as string;
+    const { companyId } = await resolveContext(req, agentId);
+    const attachment = await messages.getAttachmentById(companyId, id);
+    // If the attachment belongs to a message, make sure that message is the agent's.
+    if (attachment.mailMessageId) {
+      const message = await messages.getById(companyId, attachment.mailMessageId);
+      if (message.agentId !== agentId) throw forbidden("This attachment does not belong to the agent");
+    }
+
+    const contentLength = attachment.byteSize;
+    const range = parseRangeHeader(typeof req.headers.range === "string" ? req.headers.range : undefined, contentLength);
+    res.setHeader("Accept-Ranges", "bytes");
+    if (range.kind === "invalid") {
+      res.setHeader("Content-Range", `bytes */${contentLength}`);
+      res.status(416).end();
+      return;
+    }
+    const object = await storage.getObject(
+      companyId,
+      attachment.objectKey,
+      range.kind === "range" ? { range: { start: range.start, end: range.end } } : undefined,
+    );
+    const responseContentType = normalizeContentType(object.contentType ?? attachment.contentType);
+    res.setHeader("Content-Type", responseContentType);
+    res.setHeader("Cache-Control", "private, max-age=60");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    // Inline only known-safe image types (for cid images in the reader); force
+    // download for everything else.
+    const inline = req.query.inline === "true" && responseContentType.startsWith("image/")
+      && isInlineAttachmentContentType(responseContentType);
+    const filename = (attachment.originalFilename ?? "attachment").replaceAll('"', "");
+    res.setHeader("Content-Disposition", `${inline ? "inline" : "attachment"}; filename="${filename}"`);
+    object.stream.on("error", (err) => next(err));
+    if (range.kind === "range") {
+      res.status(206);
+      res.setHeader("Content-Length", String(range.end - range.start + 1));
+      res.setHeader("Content-Range", `bytes ${range.start}-${range.end}/${contentLength}`);
+      object.stream.pipe(res);
+      return;
+    }
+    res.setHeader("Content-Length", String(contentLength || object.contentLength || 0));
+    object.stream.pipe(res);
+  });
+
+  // ─── Send / compose / reply ───────────────────────────────────────────────
+
   router.post("/agents/:agentId/email/send", validate(sendEmailSchema), async (req, res) => {
     const agentId = req.params.agentId as string;
     const { companyId } = await resolveContext(req, agentId);
@@ -99,10 +324,13 @@ export function agentEmailRoutes(db: Db) {
       fromAddr: from.address,
       toAddrs: req.body.to,
       ccAddrs: req.body.cc ?? [],
+      bccAddrs: req.body.bcc ?? [],
       subject: req.body.subject ?? null,
       textBody: req.body.text ?? null,
       htmlBody: req.body.html ?? null,
       inReplyTo: req.body.inReplyTo ?? null,
+      references: req.body.references ?? null,
+      attachmentIds: req.body.attachmentIds ?? [],
     });
     await logActivity(db, {
       companyId,
@@ -117,15 +345,99 @@ export function agentEmailRoutes(db: Db) {
     res.status(202).json(queued);
   });
 
-  // Mark a message read.
-  router.post("/agents/:agentId/email/messages/:id/read", async (req, res) => {
+  // ─── Drafts ───────────────────────────────────────────────────────────────
+
+  router.get("/agents/:agentId/email/drafts", async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const { companyId } = await resolveContext(req, agentId);
+    res.json(await messages.listFolder(companyId, agentId, { folder: "drafts", limit: 100, threaded: false }));
+  });
+
+  router.post("/agents/:agentId/email/drafts", validate(draftSchema), async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const { companyId } = await resolveContext(req, agentId);
+    const from = req.body.fromAddressId
+      ? await addresses.getById(companyId, req.body.fromAddressId)
+      : await defaultAddress(companyId, agentId);
+    if (from.agentId !== agentId) throw forbidden("That address does not belong to the agent");
+    const draft = await messages.saveDraft(companyId, agentId, {
+      addressId: from.id,
+      fromAddr: from.address,
+      toAddrs: req.body.to,
+      ccAddrs: req.body.cc,
+      bccAddrs: req.body.bcc,
+      subject: req.body.subject ?? null,
+      textBody: req.body.text ?? null,
+      htmlBody: req.body.html ?? null,
+      inReplyTo: req.body.inReplyTo ?? null,
+      references: req.body.references ?? null,
+    });
+    res.status(201).json(draft);
+  });
+
+  router.patch("/agents/:agentId/email/drafts/:id", validate(draftSchema), async (req, res) => {
     const agentId = req.params.agentId as string;
     const id = req.params.id as string;
     const { companyId } = await resolveContext(req, agentId);
-    const message = await messages.getById(companyId, id);
-    if (message.agentId !== agentId) throw forbidden("This message does not belong to the agent");
-    res.json(await messages.markRead(companyId, id));
+    const existing = await messages.getById(companyId, id);
+    if (existing.agentId !== agentId) throw forbidden("This draft does not belong to the agent");
+    const from = req.body.fromAddressId
+      ? await addresses.getById(companyId, req.body.fromAddressId)
+      : null;
+    if (from && from.agentId !== agentId) throw forbidden("That address does not belong to the agent");
+    res.json(
+      await messages.updateDraft(companyId, id, {
+        ...(from ? { addressId: from.id, fromAddr: from.address } : {}),
+        toAddrs: req.body.to,
+        ccAddrs: req.body.cc,
+        bccAddrs: req.body.bcc,
+        subject: req.body.subject,
+        textBody: req.body.text,
+        htmlBody: req.body.html,
+        inReplyTo: req.body.inReplyTo,
+        references: req.body.references,
+      }),
+    );
   });
+
+  router.delete("/agents/:agentId/email/drafts/:id", async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const id = req.params.id as string;
+    const { companyId } = await resolveContext(req, agentId);
+    const existing = await messages.getById(companyId, id);
+    if (existing.agentId !== agentId) throw forbidden("This draft does not belong to the agent");
+    const { objectKeys } = await messages.hardDelete(companyId, id);
+    await Promise.all(objectKeys.map((key) => storage.deleteObject(companyId, key).catch(() => {})));
+    res.status(204).end();
+  });
+
+  router.post("/agents/:agentId/email/drafts/:id/send", async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const id = req.params.id as string;
+    const { companyId } = await resolveContext(req, agentId);
+    const existing = await messages.getById(companyId, id);
+    if (existing.agentId !== agentId) throw forbidden("This draft does not belong to the agent");
+    const queued = await messages.sendDraft(companyId, id);
+    await logActivity(db, {
+      companyId,
+      actorType: getActorInfo(req).actorType,
+      actorId: getActorInfo(req).actorId,
+      action: "email_sent",
+      entityType: "mail_message",
+      entityId: queued.id,
+      agentId,
+      details: { from: queued.fromAddr, to: queued.toAddrs, subject: queued.subject },
+    });
+    res.status(202).json(queued);
+  });
+
+  /** Fall back to the agent's first address when a draft is saved without one. */
+  async function defaultAddress(companyId: string, agentId: string) {
+    const list = await addresses.list(companyId, { agentId });
+    const first = list[0];
+    if (!first) throw unprocessable("The agent has no email address yet");
+    return first;
+  }
 
   return router;
 }

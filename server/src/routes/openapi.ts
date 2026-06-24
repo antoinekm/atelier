@@ -139,6 +139,8 @@ import {
   attachDomainSchema,
   createMailAddressSchema,
   sendEmailSchema,
+  draftSchema,
+  mailFlagSchema,
   provideCredentialSchema,
 } from "@paperclipai/shared";
 
@@ -4756,6 +4758,105 @@ registerCurrentRoute({
   tags: ["agents"],
   summary: "Send or reply to an email from an agent address",
   body: sendEmailSchema,
+  responses: { 202: r.ok(), 400: r.badRequest, 401: r.unauthorized, 404: r.notFound },
+});
+registerCurrentRoute({
+  method: "get",
+  path: "/api/agents/{agentId}/email/messages",
+  tags: ["agents"],
+  summary: "List an agent's mailbox (folder/search/paginated/threaded)",
+});
+registerCurrentRoute({
+  method: "get",
+  path: "/api/agents/{agentId}/email/folders",
+  tags: ["agents"],
+  summary: "Mailbox folder unread counts",
+});
+registerCurrentRoute({
+  method: "get",
+  path: "/api/agents/{agentId}/email/threads/{threadId}",
+  tags: ["agents"],
+  summary: "Get a full conversation thread",
+});
+registerCurrentRoute({
+  method: "patch",
+  path: "/api/agents/{agentId}/email/messages/{id}/flags",
+  tags: ["agents"],
+  summary: "Set message flags (star / archive / read)",
+  body: mailFlagSchema,
+});
+registerCurrentRoute({
+  method: "post",
+  path: "/api/agents/{agentId}/email/messages/{id}/trash",
+  tags: ["agents"],
+  summary: "Move a message to Trash",
+});
+registerCurrentRoute({
+  method: "post",
+  path: "/api/agents/{agentId}/email/messages/{id}/restore",
+  tags: ["agents"],
+  summary: "Restore a message from Trash",
+});
+registerCurrentRoute({
+  method: "post",
+  path: "/api/agents/{agentId}/email/messages/{id}/retry",
+  tags: ["agents"],
+  summary: "Retry a failed or bounced outbound message",
+  responses: { 202: r.ok(), 401: r.unauthorized, 404: r.notFound },
+});
+registerCurrentRoute({
+  method: "delete",
+  path: "/api/agents/{agentId}/email/messages/{id}",
+  tags: ["agents"],
+  summary: "Permanently delete a message",
+  responses: { 204: r.noContent, 401: r.unauthorized, 404: r.notFound },
+});
+registerCurrentRoute({
+  method: "post",
+  path: "/api/agents/{agentId}/email/attachments",
+  tags: ["agents"],
+  summary: "Upload (stage) an attachment for composing",
+  responses: { 201: r.ok(), 400: r.badRequest, 401: r.unauthorized, 404: r.notFound },
+});
+registerCurrentRoute({
+  method: "get",
+  path: "/api/agents/{agentId}/email/attachments/{id}/content",
+  tags: ["agents"],
+  summary: "Download an attachment's bytes",
+});
+registerCurrentRoute({
+  method: "get",
+  path: "/api/agents/{agentId}/email/drafts",
+  tags: ["agents"],
+  summary: "List an agent's drafts",
+});
+registerCurrentRoute({
+  method: "post",
+  path: "/api/agents/{agentId}/email/drafts",
+  tags: ["agents"],
+  summary: "Create a draft",
+  body: draftSchema,
+  responses: { 201: r.ok(), 400: r.badRequest, 401: r.unauthorized, 404: r.notFound },
+});
+registerCurrentRoute({
+  method: "patch",
+  path: "/api/agents/{agentId}/email/drafts/{id}",
+  tags: ["agents"],
+  summary: "Update a draft",
+  body: draftSchema,
+});
+registerCurrentRoute({
+  method: "delete",
+  path: "/api/agents/{agentId}/email/drafts/{id}",
+  tags: ["agents"],
+  summary: "Delete a draft",
+  responses: { 204: r.noContent, 401: r.unauthorized, 404: r.notFound },
+});
+registerCurrentRoute({
+  method: "post",
+  path: "/api/agents/{agentId}/email/drafts/{id}/send",
+  tags: ["agents"],
+  summary: "Send a draft",
   responses: { 202: r.ok(), 400: r.badRequest, 401: r.unauthorized, 404: r.notFound },
 });
 

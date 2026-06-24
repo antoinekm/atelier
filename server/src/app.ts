@@ -232,7 +232,7 @@ export async function createApp(
   api.use(agentMcpServerRoutes(db));
   api.use(cloudflareIntegrationRoutes(db));
   api.use(mailDomainRoutes(db));
-  api.use(agentEmailRoutes(db));
+  api.use(agentEmailRoutes(db, opts.storageService));
   api.use(assetRoutes(db, opts.storageService));
   api.use(projectRoutes(db));
   api.use(issueRoutes(db, opts.storageService, {

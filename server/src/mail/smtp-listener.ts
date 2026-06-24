@@ -1,7 +1,9 @@
 import { SMTPServer, type SMTPServerSession } from "smtp-server";
-import { simpleParser } from "mailparser";
+import { simpleParser, type AddressObject, type ParsedMail } from "mailparser";
 import type { Db } from "@paperclipai/db";
 import { mailAddressService, mailMessageService } from "../services/index.js";
+import type { StorageService } from "../storage/types.js";
+import { normalizeContentType } from "../attachment-types.js";
 import { logger } from "../middleware/logger.js";
 
 export interface MailListenerHandle {
@@ -14,13 +16,34 @@ type ResolvedRecipient = { id: string; companyId: string; agentId: string | null
 // Per-session resolved recipients (keyed by the smtp-server session object).
 const sessionRecipients = new WeakMap<SMTPServerSession, ResolvedRecipient[]>();
 
+/** Flatten a mailparser address field into a list of email addresses. */
+function addressList(field: AddressObject | AddressObject[] | undefined): string[] {
+  if (!field) return [];
+  const arr = Array.isArray(field) ? field : [field];
+  return arr.flatMap((a) => (a.value ?? []).map((v) => v.address).filter((a): a is string => Boolean(a)));
+}
+
+/** Join the References header chain into a single space-separated string. */
+function referencesString(refs: ParsedMail["references"]): string | null {
+  if (!refs) return null;
+  return Array.isArray(refs) ? refs.join(" ") : refs;
+}
+
+/** Raw header lines as a flat record (best-effort, for inspection/threading). */
+function headerRecord(parsed: ParsedMail): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const h of parsed.headerLines ?? []) out[h.key] = h.line;
+  return out;
+}
+
 /**
- * In-process inbound SMTP listener (embedded mail, phase 1). Accepts mail only
- * for known addresses (no open relay), parses the MIME, and stores one message
- * per matched recipient. Enabled by MAIL_ENABLED=true; binds MAIL_SMTP_PORT
+ * In-process inbound SMTP listener (embedded mail). Accepts mail only for known
+ * addresses (no open relay), parses the MIME, stores one message per matched
+ * recipient (with cc/references/headers and any attachments), and resolves the
+ * conversation thread. Enabled by MAIL_ENABLED=true; binds MAIL_SMTP_PORT
  * (default 2525, mapped to host port 25 in deployment).
  */
-export function startMailListener(db: Db): MailListenerHandle | null {
+export function startMailListener(db: Db, storage: StorageService): MailListenerHandle | null {
   if ((process.env.MAIL_ENABLED ?? "").trim().toLowerCase() !== "true") return null;
 
   const port = Number(process.env.MAIL_SMTP_PORT ?? 2525);
@@ -62,22 +85,56 @@ export function startMailListener(db: Db): MailListenerHandle | null {
               : undefined;
           const fromAddr = parsed.from?.value?.[0]?.address || parsed.from?.text || envelopeFrom || "unknown";
           const toAddrs = session.envelope.rcptTo.map((r) => r.address);
+          const ccAddrs = addressList(parsed.cc);
           const htmlBody = typeof parsed.html === "string" ? parsed.html : null;
+          const references = referencesString(parsed.references);
+          const headers = headerRecord(parsed);
+          const attachments = parsed.attachments ?? [];
 
           for (const rcpt of recipients) {
-            await messages
-              .recordInbound(rcpt.companyId, {
+            try {
+              const message = await messages.recordInbound(rcpt.companyId, {
                 addressId: rcpt.id,
                 agentId: rcpt.agentId,
                 fromAddr,
                 toAddrs,
+                ccAddrs,
                 subject: parsed.subject ?? null,
                 textBody: parsed.text ?? null,
                 htmlBody,
+                headers,
                 messageId: parsed.messageId ?? null,
                 inReplyTo: typeof parsed.inReplyTo === "string" ? parsed.inReplyTo : null,
-              })
-              .catch((err) => logger.warn({ err, address: rcpt.address }, "failed to store inbound mail"));
+                references,
+              });
+              for (const att of attachments) {
+                try {
+                  const contentType = normalizeContentType(att.contentType);
+                  const stored = await storage.putFile({
+                    companyId: rcpt.companyId,
+                    namespace: `mail/${rcpt.agentId ?? "shared"}`,
+                    originalFilename: att.filename ?? null,
+                    contentType,
+                    body: att.content,
+                  });
+                  await messages.recordAttachment(rcpt.companyId, message.id, {
+                    direction: "inbound",
+                    provider: stored.provider,
+                    objectKey: stored.objectKey,
+                    contentType: stored.contentType,
+                    byteSize: stored.byteSize,
+                    sha256: stored.sha256,
+                    originalFilename: stored.originalFilename,
+                    contentId: att.cid ?? null,
+                    inline: att.contentDisposition === "inline" || Boolean(att.cid),
+                  });
+                } catch (err) {
+                  logger.warn({ err, address: rcpt.address }, "failed to store inbound attachment");
+                }
+              }
+            } catch (err) {
+              logger.warn({ err, address: rcpt.address }, "failed to store inbound mail");
+            }
           }
           callback();
         })

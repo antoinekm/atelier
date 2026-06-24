@@ -1,6 +1,7 @@
 import { pgTable, uuid, text, boolean, timestamp, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { companies } from "./companies.js";
 import { agents } from "./agents.js";
+import { companySecrets } from "./company_secrets.js";
 
 /**
  * A domain attached to a company for embedded email (phase 0).
@@ -25,7 +26,9 @@ export const mailDomains = pgTable(
     cfZoneId: text("cf_zone_id"),
     status: text("status").notNull().default("pending"),
     dkimSelector: text("dkim_selector").notNull(),
-    dkimPrivateKeySecretId: uuid("dkim_private_key_secret_id"),
+    dkimPrivateKeySecretId: uuid("dkim_private_key_secret_id").references(() => companySecrets.id, {
+      onDelete: "set null",
+    }),
     dkimPublicKey: text("dkim_public_key"),
     mxConfigured: boolean("mx_configured").notNull().default(false),
     spfConfigured: boolean("spf_configured").notNull().default(false),

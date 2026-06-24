@@ -1,6 +1,7 @@
 import { pgTable, uuid, text, jsonb, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { companies } from "./companies.js";
 import { agents } from "./agents.js";
+import { companySecrets } from "./company_secrets.js";
 
 /**
  * A company's connection to a Cloudflare account (embedded mail, phase 0).
@@ -19,7 +20,9 @@ export const cloudflareConnections = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     companyId: uuid("company_id").notNull().references(() => companies.id),
     cfAccountId: text("cf_account_id"),
-    apiTokenSecretId: uuid("api_token_secret_id").notNull(),
+    apiTokenSecretId: uuid("api_token_secret_id")
+      .notNull()
+      .references(() => companySecrets.id, { onDelete: "cascade" }),
     status: text("status").notNull().default("pending"),
     scopes: jsonb("scopes").$type<string[]>().notNull().default([]),
     verifiedAt: timestamp("verified_at", { withTimezone: true }),

@@ -4643,6 +4643,7 @@ registerCurrentRoute({
   path: "/api/companies/{companyId}/integrations/cloudflare",
   tags: ["companies"],
   summary: "Disconnect the Cloudflare account",
+  responses: { 204: r.noContent, 401: r.unauthorized },
 });
 registerCurrentRoute({
   method: "get",
@@ -4675,6 +4676,7 @@ registerCurrentRoute({
   path: "/api/companies/{companyId}/mail/domains/{id}",
   tags: ["companies"],
   summary: "Detach a mail domain",
+  responses: { 204: r.noContent, 401: r.unauthorized, 404: r.notFound },
 });
 
 // ─── Spec builder ─────────────────────────────────────────────────────────────

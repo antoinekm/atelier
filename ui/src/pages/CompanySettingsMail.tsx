@@ -141,7 +141,9 @@ export function CompanySettingsMail() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {connectionQuery.isLoading ? (
+          {connectionQuery.isError ? (
+            <div className="text-sm text-destructive">Failed to load the Cloudflare connection.</div>
+          ) : connectionQuery.isLoading ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading…
             </div>
@@ -195,7 +197,11 @@ export function CompanySettingsMail() {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
-            {zonesQuery.isLoading ? (
+            {zonesQuery.isError ? (
+              <div className="text-sm text-destructive">
+                Failed to load zones. Check that the token has Zone:DNS:Edit access.
+              </div>
+            ) : zonesQuery.isLoading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" /> Loading zones…
               </div>
@@ -239,7 +245,9 @@ export function CompanySettingsMail() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {domains.length === 0 ? (
+          {domainsQuery.isError ? (
+            <div className="text-sm text-destructive">Failed to load domains.</div>
+          ) : domains.length === 0 ? (
             <div className="text-sm text-muted-foreground">No domains attached yet.</div>
           ) : (
             <div className="flex flex-col gap-3">

@@ -9,6 +9,7 @@ import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
 } from "./helpers/embedded-postgres.js";
+import { createMemoryStorage } from "./helpers/memory-storage.js";
 
 const boardActor = { actorType: "user" as const, actorId: "board" };
 const SMTP_PORT = 12525;
@@ -81,7 +82,7 @@ describeEmbeddedPostgres("mail SMTP listener (embedded mail, phase 1)", () => {
 
     process.env.MAIL_ENABLED = "true";
     process.env.MAIL_SMTP_PORT = String(SMTP_PORT);
-    listener = startMailListener(db);
+    listener = startMailListener(db, createMemoryStorage());
     // give the listener a moment to bind
     await new Promise((r) => setTimeout(r, 200));
   }, 25_000);

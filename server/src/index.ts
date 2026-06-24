@@ -998,11 +998,11 @@ export async function startServer(): Promise<StartedServer> {
       // Embedded mail: start the inbound SMTP listener + outbound worker
       // (both no-ops unless MAIL_ENABLED).
       try {
-        const mailListener = startMailListener(db as never);
+        const mailListener = startMailListener(db as never, storageService);
         if (mailListener) {
           logger.info({ port: mailListener.port }, "embedded mail reception enabled");
         }
-        startMailOutboundWorker(db as never);
+        startMailOutboundWorker(db as never, storageService);
       } catch (err) {
         logger.warn({ err }, "failed to start embedded mail");
       }

@@ -1,14 +1,89 @@
+import { createHash, randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { cloudflareConnections } from "@paperclipai/db";
+import { cloudflareConnections, companies } from "@paperclipai/db";
 import type { CloudflareConnection, CloudflareZone } from "@paperclipai/shared";
 import { badRequest, notFound, unprocessable } from "../errors.js";
 import { secretService } from "./secrets.js";
 
 const CF_API = "https://api.cloudflare.com/client/v4";
 
-/** Name of the company_secret that holds a connection's Cloudflare API token. */
+/** Name of the company_secret that holds a connection's Cloudflare access/API token. */
 const CF_TOKEN_SECRET_NAME = "CLOUDFLARE_API_TOKEN";
+/** Name of the company_secret that holds the OAuth refresh token. */
+const CF_REFRESH_SECRET_NAME = "CLOUDFLARE_OAUTH_REFRESH_TOKEN";
+
+// ─── OAuth (self-managed OAuth clients, "Connect with Cloudflare") ────────────
+
+function base64url(buf: Buffer): string {
+  return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** Instance-level OAuth app config (one Cloudflare OAuth client for the deployment). */
+function oauthConfig() {
+  const trim = (v?: string) => v?.trim() || "";
+  const publicUrl = trim(process.env.PAPERCLIP_PUBLIC_URL).replace(/\/$/, "");
+  return {
+    clientId: trim(process.env.CLOUDFLARE_OAUTH_CLIENT_ID),
+    clientSecret: trim(process.env.CLOUDFLARE_OAUTH_CLIENT_SECRET),
+    scopes: trim(process.env.CLOUDFLARE_OAUTH_SCOPES).split(/\s+/).filter(Boolean),
+    authorizeEndpoint: trim(process.env.CLOUDFLARE_OAUTH_AUTHORIZE_URL) || "https://dash.cloudflare.com/oauth2/auth",
+    tokenEndpoint: trim(process.env.CLOUDFLARE_OAUTH_TOKEN_URL) || "https://dash.cloudflare.com/oauth2/token",
+    redirectUri:
+      trim(process.env.CLOUDFLARE_OAUTH_REDIRECT_URI) ||
+      (publicUrl ? `${publicUrl}/api/integrations/cloudflare/oauth/callback` : ""),
+  };
+}
+
+function oauthConfigured(): boolean {
+  const c = oauthConfig();
+  return Boolean(c.clientId && c.clientSecret && c.redirectUri && c.scopes.length);
+}
+
+type OAuthPending = { companyId: string; actorType: "user" | "agent"; actorId: string; verifier: string; createdAt: number };
+const oauthStates = new Map<string, OAuthPending>();
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+
+function rememberState(state: string, pending: OAuthPending): void {
+  const now = Date.now();
+  for (const [k, v] of oauthStates) if (now - v.createdAt > OAUTH_STATE_TTL_MS) oauthStates.delete(k);
+  oauthStates.set(state, pending);
+}
+function consumeState(state: string): OAuthPending | null {
+  const v = oauthStates.get(state);
+  if (!v) return null;
+  oauthStates.delete(state);
+  if (Date.now() - v.createdAt > OAUTH_STATE_TTL_MS) return null;
+  return v;
+}
+
+interface OAuthTokenResponse {
+  access_token: string;
+  refresh_token?: string;
+  expires_in?: number;
+  scope?: string;
+}
+
+/** POST to the Cloudflare OAuth token endpoint (auth-code exchange or refresh). */
+async function postOAuthToken(form: Record<string, string>): Promise<OAuthTokenResponse> {
+  const cfg = oauthConfig();
+  const res = await fetch(cfg.tokenEndpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(form).toString(),
+    signal: AbortSignal.timeout(15_000),
+  }).catch((err) => {
+    throw unprocessable(`Cloudflare OAuth: ${err instanceof Error ? err.message : "token request failed"}`);
+  });
+  const json = (await res.json().catch(() => null)) as
+    | (OAuthTokenResponse & { error?: string; error_description?: string })
+    | null;
+  if (!res.ok || !json?.access_token) {
+    const msg = json?.error_description || json?.error || `token endpoint error (${res.status})`;
+    throw unprocessable(`Cloudflare OAuth: ${msg}`);
+  }
+  return json;
+}
 
 export type CloudflareActor = { actorType: "user" | "agent"; actorId: string };
 
@@ -27,6 +102,7 @@ function toConnection(row: ConnectionRow): CloudflareConnection {
     id: row.id,
     companyId: row.companyId,
     cfAccountId: row.cfAccountId,
+    authType: row.authType as CloudflareConnection["authType"],
     status: row.status as CloudflareConnection["status"],
     scopes: row.scopes ?? [],
     verifiedAt: row.verifiedAt,
@@ -78,14 +154,68 @@ export function cloudflareService(db: Db) {
       .then((rows) => rows[0] ?? null);
   }
 
-  /** Resolve the plaintext API token for a company's connection. */
+  /** Create a named company secret, or rotate it to a new value if it exists. */
+  async function upsertSecret(
+    companyId: string,
+    name: string,
+    value: string,
+    actorRef: { userId: string | null; agentId: string | null },
+  ): Promise<string> {
+    const existing = await secrets.getByName(companyId, name);
+    if (existing) {
+      await secrets.rotate(existing.id, { value }, actorRef);
+      return existing.id;
+    }
+    const created = await secrets.create(companyId, { name, provider: "local_encrypted", value }, actorRef);
+    return created.id;
+  }
+
+  async function resolveSecret(companyId: string, secretId: string): Promise<string> {
+    const resolved = await secrets.resolveEnvBindings(companyId, {
+      [CF_TOKEN_SECRET_NAME]: { type: "secret_ref", secretId, version: "latest" },
+    });
+    return resolved.env[CF_TOKEN_SECRET_NAME] ?? "";
+  }
+
+  /**
+   * Resolve the plaintext access token for a company's connection. For OAuth
+   * connections, refresh the access token first if it is expired (or about to).
+   */
   async function getToken(companyId: string): Promise<string> {
     const row = await getRow(companyId);
     if (!row) throw notFound("No Cloudflare connection for this company");
-    const resolved = await secrets.resolveEnvBindings(companyId, {
-      [CF_TOKEN_SECRET_NAME]: { type: "secret_ref", secretId: row.apiTokenSecretId, version: "latest" },
-    });
-    const token = resolved.env[CF_TOKEN_SECRET_NAME];
+
+    const needsRefresh =
+      row.authType === "oauth" &&
+      row.refreshTokenSecretId != null &&
+      row.accessTokenExpiresAt != null &&
+      row.accessTokenExpiresAt.getTime() - Date.now() < 60_000;
+
+    if (needsRefresh) {
+      const cfg = oauthConfig();
+      const refreshToken = await resolveSecret(companyId, row.refreshTokenSecretId as string);
+      if (!refreshToken) throw unprocessable("Cloudflare refresh token could not be resolved");
+      const tokens = await postOAuthToken({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: cfg.clientId,
+        client_secret: cfg.clientSecret,
+      });
+      await secrets.rotate(row.apiTokenSecretId, { value: tokens.access_token }, {});
+      if (tokens.refresh_token && row.refreshTokenSecretId) {
+        await secrets.rotate(row.refreshTokenSecretId, { value: tokens.refresh_token }, {});
+      }
+      await db
+        .update(cloudflareConnections)
+        .set({
+          accessTokenExpiresAt: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : null,
+          updatedAt: new Date(),
+        })
+        .where(eq(cloudflareConnections.id, row.id));
+      return tokens.access_token;
+    }
+
+    const token = await resolveSecret(companyId, row.apiTokenSecretId);
     if (!token) throw unprocessable("Cloudflare token could not be resolved");
     return token;
   }
@@ -182,8 +312,134 @@ export function cloudflareService(db: Db) {
       const row = await getRow(companyId);
       if (!row) return;
       await db.delete(cloudflareConnections).where(eq(cloudflareConnections.id, row.id));
-      // Best-effort cleanup of the stored token secret so it doesn't linger.
+      // Best-effort cleanup of the stored token secrets so they don't linger.
       await secrets.remove(row.apiTokenSecretId).catch(() => {});
+      if (row.refreshTokenSecretId) await secrets.remove(row.refreshTokenSecretId).catch(() => {});
+    },
+
+    /** Whether this instance has a Cloudflare OAuth app configured. */
+    isOAuthConfigured: (): boolean => oauthConfigured(),
+
+    /**
+     * Begin the OAuth "Connect with Cloudflare" flow: generate PKCE + state,
+     * remember them server-side, and return the authorize URL to redirect to.
+     */
+    startOAuth: (companyId: string, actor: CloudflareActor): { authorizeUrl: string } => {
+      const cfg = oauthConfig();
+      if (!oauthConfigured()) throw unprocessable("Cloudflare OAuth is not configured on this instance");
+      const verifier = base64url(randomBytes(32));
+      const challenge = base64url(createHash("sha256").update(verifier).digest());
+      const state = base64url(randomBytes(24));
+      rememberState(state, {
+        companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        verifier,
+        createdAt: Date.now(),
+      });
+      const url = new URL(cfg.authorizeEndpoint);
+      url.searchParams.set("response_type", "code");
+      url.searchParams.set("client_id", cfg.clientId);
+      url.searchParams.set("redirect_uri", cfg.redirectUri);
+      url.searchParams.set("scope", cfg.scopes.join(" "));
+      url.searchParams.set("state", state);
+      url.searchParams.set("code_challenge", challenge);
+      url.searchParams.set("code_challenge_method", "S256");
+      return { authorizeUrl: url.toString() };
+    },
+
+    /** Look up a pending OAuth flow's company by state (without consuming it). */
+    peekOAuthState: (state: string): { companyId: string } | null => {
+      const v = oauthStates.get(state);
+      return v ? { companyId: v.companyId } : null;
+    },
+
+    /**
+     * Complete the OAuth flow: exchange the code for tokens, store them as
+     * company secrets, and upsert the connection. Returns the company + its issue
+     * prefix so the caller can redirect back to the right settings page.
+     */
+    completeOAuth: async (
+      state: string,
+      code: string,
+    ): Promise<{ companyId: string; issuePrefix: string; connection: CloudflareConnection }> => {
+      const pending = consumeState(state);
+      if (!pending) throw badRequest("Invalid or expired OAuth state");
+      const cfg = oauthConfig();
+      const tokens = await postOAuthToken({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: cfg.redirectUri,
+        client_id: cfg.clientId,
+        client_secret: cfg.clientSecret,
+        code_verifier: pending.verifier,
+      });
+      const companyId = pending.companyId;
+      const actorRef = {
+        userId: pending.actorType === "user" ? pending.actorId : null,
+        agentId: pending.actorType === "agent" ? pending.actorId : null,
+      };
+
+      let accountId: string | null = null;
+      try {
+        const accounts = await cfFetch<Array<{ id: string }>>(tokens.access_token, "/accounts", { query: { per_page: "1" } });
+        accountId = accounts[0]?.id ?? null;
+      } catch {
+        accountId = null;
+      }
+
+      const accessSecretId = await upsertSecret(companyId, CF_TOKEN_SECRET_NAME, tokens.access_token, actorRef);
+      const refreshSecretId = tokens.refresh_token
+        ? await upsertSecret(companyId, CF_REFRESH_SECRET_NAME, tokens.refresh_token, actorRef)
+        : null;
+
+      const now = new Date();
+      const expiresAt = tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : null;
+      const scopes = tokens.scope ? tokens.scope.split(/\s+/).filter(Boolean) : cfg.scopes;
+      const existing = await getRow(companyId);
+      let row: ConnectionRow;
+      if (existing) {
+        row = await db
+          .update(cloudflareConnections)
+          .set({
+            cfAccountId: accountId,
+            authType: "oauth",
+            apiTokenSecretId: accessSecretId,
+            refreshTokenSecretId: refreshSecretId,
+            accessTokenExpiresAt: expiresAt,
+            status: "active",
+            scopes,
+            verifiedAt: now,
+            updatedAt: now,
+          })
+          .where(eq(cloudflareConnections.id, existing.id))
+          .returning()
+          .then((r) => r[0]);
+      } else {
+        row = await db
+          .insert(cloudflareConnections)
+          .values({
+            companyId,
+            cfAccountId: accountId,
+            authType: "oauth",
+            apiTokenSecretId: accessSecretId,
+            refreshTokenSecretId: refreshSecretId,
+            accessTokenExpiresAt: expiresAt,
+            status: "active",
+            scopes,
+            createdByAgentId: actorRef.agentId,
+            createdByUserId: actorRef.userId,
+            verifiedAt: now,
+          })
+          .returning()
+          .then((r) => r[0]);
+      }
+      const company = await db
+        .select({ issuePrefix: companies.issuePrefix })
+        .from(companies)
+        .where(eq(companies.id, companyId))
+        .then((r) => r[0]);
+      return { companyId, issuePrefix: company?.issuePrefix ?? "", connection: toConnection(row) };
     },
 
     /** List the zones (domains) the connected account can manage (all pages). */

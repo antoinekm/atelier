@@ -32,6 +32,20 @@ function cloudflareFetchMock() {
     const ok = (result: unknown) =>
       ({ ok: true, status: 200, json: async () => ({ success: true, result }) }) as unknown as Response;
 
+    // OAuth token endpoint (auth-code exchange + refresh) on dash.cloudflare.com.
+    if (url.host === "dash.cloudflare.com" && url.pathname === "/oauth2/token") {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          access_token: "cf-access-1",
+          refresh_token: "cf-refresh-1",
+          expires_in: 3600,
+          scope: "dns_records.edit zone.read offline_access",
+        }),
+      } as unknown as Response;
+    }
+
     if (p === "/user/tokens/verify") return ok({ id: "tok1", status: "active" });
     if (p === "/accounts") return ok([{ id: "acct1", name: "Acme" }]);
     if (p === "/zones") {
@@ -58,12 +72,22 @@ describeEmbeddedPostgres("cloudflare + mail domains (embedded mail, phase 0)", (
   let stopDb: (() => Promise<void>) | null = null;
   const previousKeyFile = process.env.PAPERCLIP_SECRETS_MASTER_KEY_FILE;
   const previousMailHost = process.env.MAIL_HOSTNAME;
+  const previousOAuthEnv = {
+    id: process.env.CLOUDFLARE_OAUTH_CLIENT_ID,
+    secret: process.env.CLOUDFLARE_OAUTH_CLIENT_SECRET,
+    scopes: process.env.CLOUDFLARE_OAUTH_SCOPES,
+    redirect: process.env.CLOUDFLARE_OAUTH_REDIRECT_URI,
+  };
   const secretsTmpDir = path.join(os.tmpdir(), `atelier-mail-${randomUUID()}`);
 
   beforeAll(async () => {
     mkdirSync(secretsTmpDir, { recursive: true });
     process.env.PAPERCLIP_SECRETS_MASTER_KEY_FILE = path.join(secretsTmpDir, "master.key");
     process.env.MAIL_HOSTNAME = "mail.atelier.test";
+    process.env.CLOUDFLARE_OAUTH_CLIENT_ID = "client-abc";
+    process.env.CLOUDFLARE_OAUTH_CLIENT_SECRET = "secret-xyz";
+    process.env.CLOUDFLARE_OAUTH_SCOPES = "dns_records.edit zone.read offline_access";
+    process.env.CLOUDFLARE_OAUTH_REDIRECT_URI = "https://atelier.test/api/integrations/cloudflare/oauth/callback";
     const started = await startEmbeddedPostgresTestDatabase("atelier-mail-");
     stopDb = started.cleanup;
     db = createDb(started.connectionString);
@@ -92,6 +116,12 @@ describeEmbeddedPostgres("cloudflare + mail domains (embedded mail, phase 0)", (
     else process.env.PAPERCLIP_SECRETS_MASTER_KEY_FILE = previousKeyFile;
     if (previousMailHost === undefined) delete process.env.MAIL_HOSTNAME;
     else process.env.MAIL_HOSTNAME = previousMailHost;
+    const restore = (key: string, val: string | undefined) =>
+      val === undefined ? delete process.env[key] : (process.env[key] = val);
+    restore("CLOUDFLARE_OAUTH_CLIENT_ID", previousOAuthEnv.id);
+    restore("CLOUDFLARE_OAUTH_CLIENT_SECRET", previousOAuthEnv.secret);
+    restore("CLOUDFLARE_OAUTH_SCOPES", previousOAuthEnv.scopes);
+    restore("CLOUDFLARE_OAUTH_REDIRECT_URI", previousOAuthEnv.redirect);
     rmSync(secretsTmpDir, { recursive: true, force: true });
   });
 
@@ -168,5 +198,60 @@ describeEmbeddedPostgres("cloudflare + mail domains (embedded mail, phase 0)", (
     expect(again.dkimPublicKey).toBe(domain.dkimPublicKey);
     const all = await mail.list(companyId);
     expect(all).toHaveLength(1);
+  });
+
+  it("OAuth: start builds a PKCE authorize URL, complete stores tokens + an oauth connection", async () => {
+    const companyId = await seedCompany();
+    expect(cf.isOAuthConfigured()).toBe(true);
+
+    const { authorizeUrl } = cf.startOAuth(companyId, boardActor);
+    const authUrl = new URL(authorizeUrl);
+    expect(authUrl.origin + authUrl.pathname).toBe("https://dash.cloudflare.com/oauth2/auth");
+    expect(authUrl.searchParams.get("client_id")).toBe("client-abc");
+    expect(authUrl.searchParams.get("code_challenge_method")).toBe("S256");
+    expect(authUrl.searchParams.get("code_challenge")).toBeTruthy();
+    const state = authUrl.searchParams.get("state")!;
+    expect(state).toBeTruthy();
+
+    const { connection, issuePrefix } = await cf.completeOAuth(state, "auth-code-1");
+    expect(connection.authType).toBe("oauth");
+    expect(connection.status).toBe("active");
+    expect(connection.cfAccountId).toBe("acct1");
+    expect(issuePrefix).toBeTruthy();
+    expect(JSON.stringify(connection)).not.toContain("cf-access-1");
+
+    // Access + refresh tokens are stored as company secrets.
+    const secretNames = await db
+      .select()
+      .from(companySecrets)
+      .where(eq(companySecrets.companyId, companyId))
+      .then((rows) => rows.map((r) => r.name));
+    expect(secretNames).toContain("CLOUDFLARE_API_TOKEN");
+    expect(secretNames).toContain("CLOUDFLARE_OAUTH_REFRESH_TOKEN");
+
+    // The state is single-use: replaying it fails.
+    await expect(cf.completeOAuth(state, "auth-code-1")).rejects.toThrow();
+  });
+
+  it("OAuth: getToken refreshes an expired access token", async () => {
+    const companyId = await seedCompany();
+    const { authorizeUrl } = cf.startOAuth(companyId, boardActor);
+    const state = new URL(authorizeUrl).searchParams.get("state")!;
+    await cf.completeOAuth(state, "auth-code-1");
+
+    // Force the access token to look expired.
+    await db
+      .update(cloudflareConnections)
+      .set({ accessTokenExpiresAt: new Date(Date.now() - 1000) })
+      .where(eq(cloudflareConnections.companyId, companyId));
+
+    // getToken should hit the token endpoint (refresh) and return the new access token.
+    const token = await cf.getToken(companyId);
+    expect(token).toBe("cf-access-1");
+    const [row] = await db
+      .select()
+      .from(cloudflareConnections)
+      .where(eq(cloudflareConnections.companyId, companyId));
+    expect(row.accessTokenExpiresAt!.getTime()).toBeGreaterThan(Date.now());
   });
 });

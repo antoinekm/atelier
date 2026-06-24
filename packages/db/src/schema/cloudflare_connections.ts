@@ -20,9 +20,18 @@ export const cloudflareConnections = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     companyId: uuid("company_id").notNull().references(() => companies.id),
     cfAccountId: text("cf_account_id"),
+    // How the account was connected: a pasted API token, or the OAuth flow.
+    authType: text("auth_type").notNull().default("token"),
+    // For OAuth this holds the access token; for token auth it holds the API token.
     apiTokenSecretId: uuid("api_token_secret_id")
       .notNull()
       .references(() => companySecrets.id, { onDelete: "cascade" }),
+    // OAuth-only: the refresh token (to mint new access tokens) and the access
+    // token's expiry so we can refresh proactively.
+    refreshTokenSecretId: uuid("refresh_token_secret_id").references(() => companySecrets.id, {
+      onDelete: "set null",
+    }),
+    accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
     status: text("status").notNull().default("pending"),
     scopes: jsonb("scopes").$type<string[]>().notNull().default([]),
     verifiedAt: timestamp("verified_at", { withTimezone: true }),

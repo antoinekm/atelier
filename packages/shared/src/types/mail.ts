@@ -8,6 +8,7 @@ export interface CloudflareConnection {
   id: string;
   companyId: string;
   cfAccountId: string | null;
+  authType: "token" | "oauth";
   status: CloudflareConnectionStatus;
   scopes: string[];
   verifiedAt: string | Date | null;

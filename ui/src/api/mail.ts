@@ -1,10 +1,17 @@
 import type { CloudflareConnection, CloudflareZone, MailDomain } from "@paperclipai/shared";
 import { api } from "./client";
 
+export interface CloudflareConnectionState {
+  connection: CloudflareConnection | null;
+  oauthAvailable: boolean;
+}
+
 /** Embedded mail: Cloudflare connection + attached mail domains (phase 0). */
 export const mailApi = {
   getCloudflareConnection: (companyId: string) =>
-    api.get<CloudflareConnection | null>(`/companies/${companyId}/integrations/cloudflare`),
+    api.get<CloudflareConnectionState>(`/companies/${companyId}/integrations/cloudflare`),
+  startCloudflareOAuth: (companyId: string) =>
+    api.get<{ authorizeUrl: string }>(`/companies/${companyId}/integrations/cloudflare/oauth/start`),
   connectCloudflare: (companyId: string, apiToken: string, cfAccountId?: string) =>
     api.post<CloudflareConnection>(`/companies/${companyId}/integrations/cloudflare`, {
       apiToken,

@@ -4631,6 +4631,19 @@ registerCurrentRoute({
   summary: "Get the company's Cloudflare connection",
 });
 registerCurrentRoute({
+  method: "get",
+  path: "/api/companies/{companyId}/integrations/cloudflare/oauth/start",
+  tags: ["companies"],
+  summary: "Start the Cloudflare OAuth connect flow",
+});
+registerCurrentRoute({
+  method: "get",
+  path: "/api/integrations/cloudflare/oauth/callback",
+  tags: ["companies"],
+  summary: "Cloudflare OAuth redirect callback",
+  responses: { 302: { description: "Redirect back to settings" }, 400: r.badRequest, 401: r.unauthorized },
+});
+registerCurrentRoute({
   method: "post",
   path: "/api/companies/{companyId}/integrations/cloudflare",
   tags: ["companies"],

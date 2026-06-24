@@ -35,10 +35,27 @@ export function CompanySettingsMail() {
   const { pushToast } = useToastActions();
   const queryClient = useQueryClient();
   const [apiToken, setApiToken] = useState("");
+  const [showTokenForm, setShowTokenForm] = useState(false);
 
   useEffect(() => {
     setBreadcrumbs([{ label: "Email" }]);
   }, [setBreadcrumbs]);
+
+  // Surface the OAuth callback result (?cloudflare=connected | ?cloudflare_error=...).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("cloudflare")) {
+      pushToast({ tone: "success", title: "Cloudflare connected" });
+    } else if (params.has("cloudflare_error")) {
+      pushToast({ tone: "error", title: `Cloudflare connect failed: ${params.get("cloudflare_error")}` });
+    } else {
+      return;
+    }
+    params.delete("cloudflare");
+    params.delete("cloudflare_error");
+    const qs = params.toString();
+    window.history.replaceState({}, "", `${window.location.pathname}${qs ? `?${qs}` : ""}`);
+  }, [pushToast]);
 
   const companyId = selectedCompanyId;
 
@@ -47,7 +64,8 @@ export function CompanySettingsMail() {
     queryFn: () => mailApi.getCloudflareConnection(companyId!),
     enabled: Boolean(companyId),
   });
-  const connection = connectionQuery.data ?? null;
+  const connection = connectionQuery.data?.connection ?? null;
+  const oauthAvailable = connectionQuery.data?.oauthAvailable ?? false;
   const connected = connection?.status === "active";
 
   const zonesQuery = useQuery({
@@ -68,6 +86,14 @@ export function CompanySettingsMail() {
   const invalidate = (keys: ReadonlyArray<readonly unknown[]>) => {
     for (const key of keys) queryClient.invalidateQueries({ queryKey: key });
   };
+
+  const startOAuthMutation = useMutation({
+    mutationFn: () => mailApi.startCloudflareOAuth(companyId!),
+    onSuccess: ({ authorizeUrl }) => {
+      window.location.href = authorizeUrl;
+    },
+    onError: (e) => toastError(e, "Failed to start Cloudflare connect"),
+  });
 
   const connectMutation = useMutation({
     mutationFn: () => mailApi.connectCloudflare(companyId!, apiToken.trim()),
@@ -136,8 +162,9 @@ export function CompanySettingsMail() {
             <Cloud className="h-4 w-4" /> Cloudflare
           </CardTitle>
           <CardDescription>
-            Paste an API token scoped to <code className="rounded bg-muted px-1">Zone:DNS:Edit</code>. It
-            is verified and stored encrypted; the raw token is never shown again.
+            Connect your Cloudflare account in one click, or paste an API token scoped to{" "}
+            <code className="rounded bg-muted px-1">Zone:DNS:Edit</code>. Credentials are stored
+            encrypted and never shown again.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -151,7 +178,8 @@ export function CompanySettingsMail() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-sm">
                 <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                Connected{connection?.cfAccountId ? ` · account ${connection.cfAccountId}` : ""}
+                Connected via {connection?.authType === "oauth" ? "OAuth" : "API token"}
+                {connection?.cfAccountId ? ` · account ${connection.cfAccountId}` : ""}
               </div>
               <Button
                 variant="outline"
@@ -163,24 +191,52 @@ export function CompanySettingsMail() {
               </Button>
             </div>
           ) : (
-            <div className="flex gap-2">
-              <Input
-                type="password"
-                placeholder="Cloudflare API token"
-                value={apiToken}
-                onChange={(e) => setApiToken(e.target.value)}
-              />
-              <Button
-                onClick={() => connectMutation.mutate()}
-                disabled={!apiToken.trim() || connectMutation.isPending}
-              >
-                {connectMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Link2 className="h-4 w-4" />
-                )}
-                Connect
-              </Button>
+            <div className="flex flex-col gap-3">
+              {oauthAvailable && (
+                <Button
+                  className="self-start"
+                  onClick={() => startOAuthMutation.mutate()}
+                  disabled={startOAuthMutation.isPending}
+                >
+                  {startOAuthMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Cloud className="h-4 w-4" />
+                  )}
+                  Connect with Cloudflare
+                </Button>
+              )}
+              {oauthAvailable && (
+                <button
+                  type="button"
+                  className="self-start text-xs text-muted-foreground underline underline-offset-2"
+                  onClick={() => setShowTokenForm((v) => !v)}
+                >
+                  {showTokenForm ? "Hide token option" : "Use an API token instead"}
+                </button>
+              )}
+              {(!oauthAvailable || showTokenForm) && (
+                <div className="flex gap-2">
+                  <Input
+                    type="password"
+                    placeholder="Cloudflare API token"
+                    value={apiToken}
+                    onChange={(e) => setApiToken(e.target.value)}
+                  />
+                  <Button
+                    variant={oauthAvailable ? "outline" : "default"}
+                    onClick={() => connectMutation.mutate()}
+                    disabled={!apiToken.trim() || connectMutation.isPending}
+                  >
+                    {connectMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Link2 className="h-4 w-4" />
+                    )}
+                    Connect
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </CardContent>

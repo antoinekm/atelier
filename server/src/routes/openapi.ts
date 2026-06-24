@@ -4686,6 +4686,7 @@ registerCurrentRoute({
   path: "/api/companies/{companyId}/mail/reverse-dns",
   tags: ["companies"],
   summary: "Reverse-DNS (PTR) health for the mail sending IP",
+  query: z.object({ refresh: z.enum(["true"]).optional() }),
 });
 registerCurrentRoute({
   method: "get",

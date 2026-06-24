@@ -425,6 +425,12 @@ export type {
   MailDomain,
   MailAddress,
   MailMessage,
+  MailAttachment,
+  MailMessageListItem,
+  MailThreadSummary,
+  MailThread,
+  MailListPage,
+  MailFolderCounts,
   MailReverseDnsStatus,
 } from "./mail.js";
 export type {

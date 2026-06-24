@@ -531,6 +531,7 @@ export type MailMessageDirection = (typeof MAIL_MESSAGE_DIRECTIONS)[number];
 export const MAIL_MESSAGE_STATUSES = [
   "received",
   "read",
+  "draft",
   "queued",
   "sending",
   "sent",
@@ -538,6 +539,10 @@ export const MAIL_MESSAGE_STATUSES = [
   "bounced",
 ] as const;
 export type MailMessageStatus = (typeof MAIL_MESSAGE_STATUSES)[number];
+
+/** Mailbox folders for the agent mail client (mini Gmail). */
+export const MAIL_FOLDERS = ["inbox", "sent", "drafts", "starred", "archive", "trash"] as const;
+export type MailFolder = (typeof MAIL_FOLDERS)[number];
 
 export const APPROVAL_STATUSES = [
   "pending",

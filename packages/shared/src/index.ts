@@ -315,9 +315,11 @@ export {
   MAIL_ADDRESS_KINDS,
   MAIL_MESSAGE_DIRECTIONS,
   MAIL_MESSAGE_STATUSES,
+  MAIL_FOLDERS,
   type MailAddressKind,
   type MailMessageDirection,
   type MailMessageStatus,
+  type MailFolder,
 } from "./constants.js";
 
 export {
@@ -828,6 +830,12 @@ export type {
   MailDomain,
   MailAddress,
   MailMessage,
+  MailAttachment,
+  MailMessageListItem,
+  MailThreadSummary,
+  MailThread,
+  MailListPage,
+  MailFolderCounts,
   MailReverseDnsStatus,
 } from "./types/index.js";
 export { COMPANY_SEARCH_SCOPES } from "./types/index.js";
@@ -970,11 +978,17 @@ export {
   attachDomainSchema,
   createMailAddressSchema,
   sendEmailSchema,
+  draftSchema,
+  mailFlagSchema,
+  mailListQuerySchema,
   mailInboxQuerySchema,
   type ConnectCloudflare,
   type AttachDomain,
   type CreateMailAddress,
   type SendEmail,
+  type DraftInput,
+  type MailFlagInput,
+  type MailListQuery,
   type MailInboxQuery,
 } from "./validators/index.js";
 

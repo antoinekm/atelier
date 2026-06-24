@@ -2,6 +2,7 @@ import type {
   CloudflareConnectionStatus,
   MailAddressKind,
   MailDomainStatus,
+  MailFolder,
   MailMessageDirection,
   MailMessageStatus,
 } from "../constants.js";
@@ -90,7 +91,20 @@ export interface MailReverseDnsStatus {
   checkedAt: string;
 }
 
-/** A stored email message (inbound in phase 1; outbound in phase 2). */
+/** A binary attachment on a mail message, projected for the API (no bytes). */
+export interface MailAttachment {
+  id: string;
+  mailMessageId: string | null;
+  direction: MailMessageDirection;
+  contentType: string;
+  byteSize: number;
+  originalFilename: string | null;
+  contentId: string | null;
+  inline: boolean;
+  createdAt: string | Date;
+}
+
+/** A stored email message (inbound or outbound), full detail projection. */
 export interface MailMessage {
   id: string;
   companyId: string;
@@ -99,13 +113,80 @@ export interface MailMessage {
   direction: MailMessageDirection;
   messageId: string | null;
   inReplyTo: string | null;
+  references: string | null;
+  threadId: string | null;
   fromAddr: string;
   toAddrs: string[];
   ccAddrs: string[];
+  bccAddrs: string[];
   subject: string | null;
   textBody: string | null;
   htmlBody: string | null;
   status: MailMessageStatus;
+  isStarred: boolean;
+  isArchived: boolean;
+  deletedAt: string | Date | null;
+  error: string | null;
+  attempts: number;
+  sentAt: string | Date | null;
   readAt: string | Date | null;
   createdAt: string | Date;
+  updatedAt: string | Date;
+  attachments: MailAttachment[];
 }
+
+/** A lightweight message row for folder/thread lists (no bodies, just a snippet). */
+export interface MailMessageListItem {
+  id: string;
+  threadId: string | null;
+  direction: MailMessageDirection;
+  fromAddr: string;
+  toAddrs: string[];
+  subject: string | null;
+  snippet: string;
+  status: MailMessageStatus;
+  isStarred: boolean;
+  isArchived: boolean;
+  hasAttachments: boolean;
+  error: string | null;
+  createdAt: string | Date;
+}
+
+/** A collapsed conversation row for the threaded list view. */
+export interface MailThreadSummary {
+  threadId: string;
+  subject: string | null;
+  snippet: string;
+  lastMessageAt: string | Date;
+  messageCount: number;
+  unreadCount: number;
+  participants: string[];
+  hasAttachments: boolean;
+  isStarred: boolean;
+  lastStatus: MailMessageStatus;
+  lastError: string | null;
+}
+
+/** A full conversation (all messages in a thread, ascending). */
+export interface MailThread {
+  threadId: string;
+  subject: string | null;
+  messages: MailMessage[];
+}
+
+/** A page of list results with a keyset cursor for the next page. */
+export interface MailListPage<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
+/** Unread counts per folder, for the folder rail badges. */
+export interface MailFolderCounts {
+  inbox: number;
+  drafts: number;
+  starred: number;
+  archive: number;
+  trash: number;
+}
+
+export type { MailFolder };

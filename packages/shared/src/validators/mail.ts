@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAIL_FOLDERS, MAIL_MESSAGE_STATUSES } from "../constants.js";
 
 /**
  * Connect a Cloudflare account by API token (embedded mail, phase 0). The token
@@ -45,21 +46,72 @@ export const createMailAddressSchema = z.object({
 });
 export type CreateMailAddress = z.infer<typeof createMailAddressSchema>;
 
-/** Send (or reply to) an email from one of the agent's addresses (phase 2). */
+/**
+ * Compose / reply / forward an email from one of the agent's addresses. Bodies
+ * and attachments are both optional individually, but at least one must be
+ * present. `attachmentIds` reference attachments previously staged via upload.
+ */
 export const sendEmailSchema = z
   .object({
     fromAddressId: z.string().uuid(),
-    to: z.array(z.string().email()).min(1).max(20),
-    cc: z.array(z.string().email()).max(20).optional(),
+    to: z.array(z.string().email()).min(1).max(50),
+    cc: z.array(z.string().email()).max(50).optional(),
+    bcc: z.array(z.string().email()).max(50).optional(),
     subject: z.string().max(998).optional(),
     text: z.string().max(100_000).optional(),
-    html: z.string().max(200_000).optional(),
+    html: z.string().max(500_000).optional(),
     inReplyTo: z.string().max(998).optional(),
+    references: z.string().max(4000).optional(),
+    attachmentIds: z.array(z.string().uuid()).max(20).optional(),
   })
-  .refine((d) => Boolean(d.text || d.html), { message: "Provide a text or html body" });
+  .refine((d) => Boolean(d.text || d.html || (d.attachmentIds && d.attachmentIds.length > 0)), {
+    message: "Provide a text or html body, or at least one attachment",
+  });
 export type SendEmail = z.infer<typeof sendEmailSchema>;
 
-/** Inbox listing query (phase 1). */
+/**
+ * Create or update a draft. Everything is optional (a draft can be half-written);
+ * `fromAddressId` is validated when present and required only at send time.
+ */
+export const draftSchema = z.object({
+  fromAddressId: z.string().uuid().optional(),
+  to: z.array(z.string().email()).max(50).optional(),
+  cc: z.array(z.string().email()).max(50).optional(),
+  bcc: z.array(z.string().email()).max(50).optional(),
+  subject: z.string().max(998).optional(),
+  text: z.string().max(100_000).optional(),
+  html: z.string().max(500_000).optional(),
+  inReplyTo: z.string().max(998).optional(),
+  references: z.string().max(4000).optional(),
+  attachmentIds: z.array(z.string().uuid()).max(20).optional(),
+});
+export type DraftInput = z.infer<typeof draftSchema>;
+
+/** Toggle Gmail-like flags on a message (any subset). */
+export const mailFlagSchema = z
+  .object({
+    isStarred: z.boolean().optional(),
+    isArchived: z.boolean().optional(),
+    isRead: z.boolean().optional(),
+  })
+  .refine((d) => d.isStarred !== undefined || d.isArchived !== undefined || d.isRead !== undefined, {
+    message: "Provide at least one flag to change",
+  });
+export type MailFlagInput = z.infer<typeof mailFlagSchema>;
+
+/** Folder/search/paginated/threaded list query for the mail client. */
+export const mailListQuerySchema = z.object({
+  folder: z.enum(MAIL_FOLDERS).default("inbox"),
+  q: z.string().trim().max(200).optional(),
+  status: z.enum(MAIL_MESSAGE_STATUSES).optional(),
+  starred: z.coerce.boolean().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  cursor: z.string().max(120).optional(),
+  threaded: z.coerce.boolean().optional().default(true),
+});
+export type MailListQuery = z.infer<typeof mailListQuerySchema>;
+
+/** Inbox listing query (agent run-context API; kept stable for back-compat). */
 export const mailInboxQuerySchema = z.object({
   since: z.string().datetime().optional(),
   status: z.enum(["received", "read"]).optional(),

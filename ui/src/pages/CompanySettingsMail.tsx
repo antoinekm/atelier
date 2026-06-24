@@ -27,16 +27,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-const SHARED = "__shared__";
-
 export function CompanySettingsMail() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
   const { pushToast } = useToastActions();
   const queryClient = useQueryClient();
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [domainId, setDomainId] = useState("");
   const [localPart, setLocalPart] = useState("");
-  const [owner, setOwner] = useState<string>(SHARED);
 
   useEffect(() => {
     setBreadcrumbs([{ label: "Mail" }]);
@@ -62,27 +60,23 @@ export function CompanySettingsMail() {
 
   const toastError = (e: unknown, fallback: string) =>
     pushToast({ tone: "error", title: e instanceof ApiError ? e.message : fallback });
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: queryKeys.mail.addresses(companyId!) });
 
   const createMutation = useMutation({
-    mutationFn: () =>
-      mailApi.createAddress(companyId!, {
-        domainId,
-        localPart: localPart.trim(),
-        agentId: owner === SHARED ? null : owner,
-      }),
+    mutationFn: () => mailApi.createAddress(companyId!, { domainId, localPart: localPart.trim(), agentId: null }),
     onSuccess: (address) => {
       setLocalPart("");
       pushToast({ tone: "success", title: `${address.address} created` });
-      queryClient.invalidateQueries({ queryKey: queryKeys.mail.addresses(companyId!) });
+      invalidate();
     },
     onError: (e) => toastError(e, "Failed to create address"),
   });
-
   const removeMutation = useMutation({
     mutationFn: (id: string) => mailApi.removeAddress(companyId!, id),
     onSuccess: () => {
       pushToast({ tone: "success", title: "Address deleted" });
-      queryClient.invalidateQueries({ queryKey: queryKeys.mail.addresses(companyId!) });
+      invalidate();
     },
     onError: (e) => toastError(e, "Failed to delete address"),
   });
@@ -94,7 +88,12 @@ export function CompanySettingsMail() {
   const domains = (domainsQuery.data ?? []).filter((d) => d.status !== "failed");
   const addresses = addressesQuery.data ?? [];
   const agents = agentsQuery.data ?? [];
-  const agentName = (id: string | null) => (id ? agents.find((a) => a.id === id)?.name ?? "agent" : null);
+  const byAgent = new Map<string, MailAddress[]>();
+  const shared: MailAddress[] = [];
+  for (const a of addresses) {
+    if (a.agentId) byAgent.set(a.agentId, [...(byAgent.get(a.agentId) ?? []), a]);
+    else shared.push(a);
+  }
   const receptionReady = domains.some((d: MailDomain) => d.mxConfigured);
   const canCreate = Boolean(domainId && localPart.trim()) && !createMutation.isPending;
 
@@ -103,8 +102,8 @@ export function CompanySettingsMail() {
       <div>
         <h1 className="text-xl font-semibold">Mail</h1>
         <p className="text-sm text-muted-foreground">
-          Create the mailboxes your agents use on the attached domains. Connect Cloudflare and attach
-          domains under Domain first.
+          Every agent automatically gets <code className="rounded bg-muted px-1">handle@domain</code>{" "}
+          on each attached domain. Attach domains under Domain.
         </p>
       </div>
 
@@ -122,91 +121,63 @@ export function CompanySettingsMail() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <AtSign className="h-4 w-4" /> New address
+            <AtSign className="h-4 w-4" /> Agent mailboxes
           </CardTitle>
-          <CardDescription>
-            Pick a domain, a local part (or <code className="rounded bg-muted px-1">*</code> for a
-            catch-all), and who owns it.
-          </CardDescription>
+          <CardDescription>Each agent's address on the attached domains.</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          {domains.length === 0 ? (
-            <div className="text-sm text-muted-foreground">
-              No domains attached. Attach one under Domain first.
-            </div>
+        <CardContent>
+          {addressesQuery.isError ? (
+            <div className="text-sm text-destructive">Failed to load addresses.</div>
+          ) : agents.length === 0 ? (
+            <div className="text-sm text-muted-foreground">No agents yet.</div>
           ) : (
-            <>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Select value={domainId} onValueChange={setDomainId}>
-                  <SelectTrigger className="sm:w-56">
-                    <SelectValue placeholder="Domain" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {domains.map((d) => (
-                      <SelectItem key={d.id} value={d.id}>
-                        {d.domain}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input
-                  className="sm:flex-1"
-                  placeholder="local part (e.g. ceo, or *)"
-                  value={localPart}
-                  onChange={(e) => setLocalPart(e.target.value)}
-                />
-                <Select value={owner} onValueChange={setOwner}>
-                  <SelectTrigger className="sm:w-56">
-                    <SelectValue placeholder="Owner" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={SHARED}>Shared (no owner)</SelectItem>
-                    {agents.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button className="self-start" disabled={!canCreate} onClick={() => createMutation.mutate()}>
-                {createMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Plus className="h-4 w-4" />
-                )}
-                Create address
-              </Button>
-            </>
+            <div className="overflow-hidden rounded-md border">
+              {agents.map((agent) => {
+                const mine = byAgent.get(agent.id) ?? [];
+                return (
+                  <div
+                    key={agent.id}
+                    className="flex items-center gap-2 border-b px-3 py-2 text-sm last:border-b-0"
+                  >
+                    <span className="w-32 shrink-0 truncate font-medium">{agent.name}</span>
+                    {mine.length === 0 ? (
+                      <span className="text-muted-foreground">no address yet (attach a domain)</span>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {mine.map((a) => (
+                          <Badge key={a.id} variant="outline" className="font-mono font-normal">
+                            {a.address}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Addresses</CardTitle>
-          <CardDescription>All mailboxes on the company's domains.</CardDescription>
+          <CardTitle>Shared addresses</CardTitle>
+          <CardDescription>Catch-all and extra addresses not tied to an agent.</CardDescription>
         </CardHeader>
-        <CardContent>
-          {addressesQuery.isError ? (
-            <div className="text-sm text-destructive">Failed to load addresses.</div>
-          ) : addresses.length === 0 ? (
-            <div className="text-sm text-muted-foreground">No addresses yet.</div>
-          ) : (
+        <CardContent className="flex flex-col gap-3">
+          {shared.length > 0 && (
             <div className="overflow-hidden rounded-md border">
-              {addresses.map((address: MailAddress) => (
+              {shared.map((address) => (
                 <div
                   key={address.id}
                   className="flex items-center gap-2 border-b px-3 py-2 text-sm last:border-b-0"
                 >
                   <span className="font-mono">{address.address}</span>
                   {address.kind === "catch_all" && <Badge variant="secondary">catch-all</Badge>}
-                  <span className="ml-auto text-muted-foreground">
-                    {agentName(address.agentId) ?? "shared"}
-                  </span>
                   <Button
                     size="icon-sm"
                     variant="ghost"
+                    className="ml-auto"
                     disabled={removeMutation.isPending}
                     title="Delete address"
                     onClick={() => removeMutation.mutate(address.id)}
@@ -215,6 +186,47 @@ export function CompanySettingsMail() {
                   </Button>
                 </div>
               ))}
+            </div>
+          )}
+
+          {!showAdvanced ? (
+            <button
+              type="button"
+              className="self-start text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+              onClick={() => setShowAdvanced(true)}
+            >
+              Add a catch-all or extra address
+            </button>
+          ) : domains.length === 0 ? (
+            <div className="text-sm text-muted-foreground">Attach a domain under Domain first.</div>
+          ) : (
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Select value={domainId} onValueChange={setDomainId}>
+                <SelectTrigger className="sm:w-52">
+                  <SelectValue placeholder="Domain" />
+                </SelectTrigger>
+                <SelectContent>
+                  {domains.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.domain}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                className="sm:flex-1"
+                placeholder="local part (or * for catch-all)"
+                value={localPart}
+                onChange={(e) => setLocalPart(e.target.value)}
+              />
+              <Button disabled={!canCreate} onClick={() => createMutation.mutate()}>
+                {createMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Plus className="h-4 w-4" />
+                )}
+                Add
+              </Button>
             </div>
           )}
         </CardContent>

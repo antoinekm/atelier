@@ -86,6 +86,25 @@ describeEmbeddedPostgres("mail reception (embedded mail, phase 1)", () => {
     expect(resolved?.id).toBe(catchAll.id);
   });
 
+  it("auto-provisions <handle>@domain mailboxes (per domain and per agent), idempotently", async () => {
+    const { companyId, agentId, domainId } = await seed();
+
+    // Provision all agents on the domain -> the CEO gets ceo@example.com.
+    await addresses.provisionForDomain(companyId, domainId);
+    let mine = await addresses.list(companyId, { agentId });
+    expect(mine.map((a) => a.address)).toContain("ceo@example.com");
+    expect(mine.find((a) => a.address === "ceo@example.com")?.kind).toBe("mailbox");
+
+    // Idempotent: provisioning again doesn't duplicate.
+    await addresses.provisionForDomain(companyId, domainId);
+    mine = await addresses.list(companyId, { agentId });
+    expect(mine.filter((a) => a.address === "ceo@example.com")).toHaveLength(1);
+
+    // Provision-for-agent covers every attached domain (same result here).
+    await addresses.provisionForAgent(companyId, agentId);
+    expect((await addresses.list(companyId, { agentId })).filter((a) => a.address === "ceo@example.com")).toHaveLength(1);
+  });
+
   it("records inbound mail, lists the inbox, and marks read", async () => {
     const { companyId, agentId, domainId } = await seed();
     const mailbox = await addresses.create(companyId, agentId, { domainId, localPart: "ceo" }, boardActor);

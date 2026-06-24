@@ -1,7 +1,7 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { mailAddresses, mailDomains } from "@paperclipai/db";
-import type { CreateMailAddress, MailAddress } from "@paperclipai/shared";
+import { agents, mailAddresses, mailDomains } from "@paperclipai/db";
+import { normalizeAgentUrlKey, type CreateMailAddress, type MailAddress } from "@paperclipai/shared";
 import { badRequest, conflict, notFound } from "../errors.js";
 
 export type MailAddressActor = { actorType: "user" | "agent"; actorId: string };
@@ -116,6 +116,71 @@ export function mailAddressService(db: Db) {
         .from(mailAddresses)
         .where(and(eq(mailAddresses.address, `*@${domain}`), eq(mailAddresses.status, "active")))
         .then((rows) => rows[0] ?? null);
+    },
+
+    /**
+     * Ensure every active agent has its `<handle>@domain` mailbox on a domain.
+     * Called when a domain is attached. Idempotent (skips existing).
+     */
+    provisionForDomain: async (companyId: string, domainId: string): Promise<void> => {
+      const domain = await db
+        .select()
+        .from(mailDomains)
+        .where(and(eq(mailDomains.id, domainId), eq(mailDomains.companyId, companyId)))
+        .then((rows) => rows[0] ?? null);
+      if (!domain) return;
+      const agentRows = await db
+        .select({ id: agents.id, name: agents.name })
+        .from(agents)
+        .where(and(eq(agents.companyId, companyId), ne(agents.status, "terminated")));
+      for (const agent of agentRows) {
+        const localPart = normalizeAgentUrlKey(agent.name);
+        if (!localPart) continue;
+        await db
+          .insert(mailAddresses)
+          .values({
+            companyId,
+            domainId,
+            agentId: agent.id,
+            localPart,
+            address: `${localPart}@${domain.domain}`,
+            kind: "mailbox",
+          })
+          .onConflictDoNothing();
+      }
+    },
+
+    /**
+     * Ensure an agent has its `<handle>@domain` mailbox on every attached domain.
+     * Called when an agent is created. Idempotent.
+     */
+    provisionForAgent: async (companyId: string, agentId: string): Promise<void> => {
+      const agent = await db
+        .select({ id: agents.id, name: agents.name })
+        .from(agents)
+        .where(and(eq(agents.id, agentId), eq(agents.companyId, companyId)))
+        .then((rows) => rows[0] ?? null);
+      if (!agent) return;
+      const localPart = normalizeAgentUrlKey(agent.name);
+      if (!localPart) return;
+      const domains = await db
+        .select()
+        .from(mailDomains)
+        .where(eq(mailDomains.companyId, companyId));
+      for (const domain of domains) {
+        if (domain.status === "failed") continue;
+        await db
+          .insert(mailAddresses)
+          .values({
+            companyId,
+            domainId: domain.id,
+            agentId: agent.id,
+            localPart,
+            address: `${localPart}@${domain.domain}`,
+            kind: "mailbox",
+          })
+          .onConflictDoNothing();
+      }
     },
 
     remove: async (companyId: string, id: string): Promise<void> => {

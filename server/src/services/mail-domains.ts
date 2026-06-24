@@ -6,6 +6,7 @@ import type { MailDomain } from "@paperclipai/shared";
 import { notFound, unprocessable } from "../errors.js";
 import { logger } from "../middleware/logger.js";
 import { secretService } from "./secrets.js";
+import { mailAddressService } from "./mail-addresses.js";
 import { cloudflareService } from "./cloudflare.js";
 
 const DKIM_SELECTOR = "atl1";
@@ -224,6 +225,10 @@ export function mailDomainService(db: Db) {
           .where(eq(mailDomains.id, row.id))
           .returning()
           .then((rows) => rows[0]);
+        // Auto-provision <handle>@domain for every agent on this freshly attached domain.
+        await mailAddressService(db)
+          .provisionForDomain(companyId, row.id)
+          .catch((err) => logger.warn({ err, companyId, domain: normalizedDomain }, "mail address provisioning failed"));
       } catch (err) {
         logger.warn({ err, companyId, domain: normalizedDomain }, "failed to publish mail DNS records");
         const message = err instanceof Error ? err.message : "DNS publish failed";

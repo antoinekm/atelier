@@ -28,6 +28,7 @@ import { syncAgentAdapterEnvBindings } from "./agent-secret-bindings.js";
 import { normalizeAgentPermissions } from "./agent-permissions.js";
 import { REDACTED_EVENT_VALUE, sanitizeRecord } from "../redaction.js";
 import { secretService } from "./secrets.js";
+import { mailAddressService } from "./mail-addresses.js";
 
 function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
@@ -503,7 +504,7 @@ export function agentService(db: Db) {
       const role = data.role ?? "general";
       const normalizedPermissions = normalizeAgentPermissions(data.permissions, role);
       const runtimeConfig = normalizeRuntimeConfigForNewAgent(data.runtimeConfig);
-      return db.transaction(async (tx) => {
+      const createdAgent = await db.transaction(async (tx) => {
         const txDb = tx as unknown as Db;
         const created = await tx
           .insert(agents)
@@ -517,6 +518,11 @@ export function agentService(db: Db) {
         }
         return normalizedCreated;
       });
+      // Auto-provision the agent's <handle>@domain mailboxes on attached domains.
+      await mailAddressService(db)
+        .provisionForAgent(companyId, createdAgent.id)
+        .catch(() => undefined);
+      return createdAgent;
     },
 
     update: updateAgent,

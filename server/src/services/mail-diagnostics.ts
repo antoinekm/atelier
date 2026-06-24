@@ -1,7 +1,13 @@
-import { resolve4, reverse } from "node:dns/promises";
+import { Resolver } from "node:dns/promises";
 import type { MailReverseDnsStatus } from "@paperclipai/shared";
 
 const CACHE_TTL_MS = 60_000;
+
+// A bounded resolver so "Recheck" fails fast on a slow or unreachable DNS server
+// instead of hanging the request for the c-ares default (~several seconds).
+const resolver = new Resolver({ timeout: 3000, tries: 1 });
+const resolve4 = (host: string) => resolver.resolve4(host);
+const reverse = (ip: string) => resolver.reverse(ip);
 
 // Reverse DNS is instance-level (one sending IP for the whole deployment), so the
 // result is the same for every company; a single in-process cache is enough.

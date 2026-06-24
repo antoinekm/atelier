@@ -487,11 +487,17 @@ export {
   attachDomainSchema,
   createMailAddressSchema,
   sendEmailSchema,
+  draftSchema,
+  mailFlagSchema,
+  mailListQuerySchema,
   mailInboxQuerySchema,
   type ConnectCloudflare,
   type AttachDomain,
   type CreateMailAddress,
   type SendEmail,
+  type DraftInput,
+  type MailFlagInput,
+  type MailListQuery,
   type MailInboxQuery,
 } from "./mail.js";
 

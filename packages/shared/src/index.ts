@@ -312,6 +312,12 @@ export {
   MAIL_DOMAIN_STATUSES,
   type CloudflareConnectionStatus,
   type MailDomainStatus,
+  MAIL_ADDRESS_KINDS,
+  MAIL_MESSAGE_DIRECTIONS,
+  MAIL_MESSAGE_STATUSES,
+  type MailAddressKind,
+  type MailMessageDirection,
+  type MailMessageStatus,
 } from "./constants.js";
 
 export {
@@ -820,6 +826,8 @@ export type {
   CloudflareConnection,
   CloudflareZone,
   MailDomain,
+  MailAddress,
+  MailMessage,
 } from "./types/index.js";
 export { COMPANY_SEARCH_SCOPES } from "./types/index.js";
 export {
@@ -959,8 +967,12 @@ export {
   type ProvideCredential,
   connectCloudflareSchema,
   attachDomainSchema,
+  createMailAddressSchema,
+  mailInboxQuerySchema,
   type ConnectCloudflare,
   type AttachDomain,
+  type CreateMailAddress,
+  type MailInboxQuery,
 } from "./validators/index.js";
 
 export {

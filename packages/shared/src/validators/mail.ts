@@ -28,3 +28,25 @@ export const attachDomainSchema = z.object({
     ),
 });
 export type AttachDomain = z.infer<typeof attachDomainSchema>;
+
+/** Create an email address on an attached domain (phase 1). */
+export const createMailAddressSchema = z.object({
+  domainId: z.string().uuid(),
+  // The local part (before @). Use "*" for a catch-all address.
+  localPart: z
+    .string()
+    .trim()
+    .min(1)
+    .max(64)
+    .regex(/^(\*|[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)$/i, "Invalid local part"),
+  kind: z.enum(["mailbox", "alias", "catch_all"]).optional(),
+});
+export type CreateMailAddress = z.infer<typeof createMailAddressSchema>;
+
+/** Inbox listing query (phase 1). */
+export const mailInboxQuerySchema = z.object({
+  since: z.string().datetime().optional(),
+  status: z.enum(["received", "read"]).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
+export type MailInboxQuery = z.infer<typeof mailInboxQuerySchema>;

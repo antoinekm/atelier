@@ -14,6 +14,7 @@ const apiPrefixes: Record<string, string> = {
   "access.ts": "/api",
   "activity.ts": "/api",
   "adapters.ts": "/api",
+  "agent-email.ts": "/api",
   "agent-memories.ts": "/api",
   "agent-mcp-servers.ts": "/api",
   "agents.ts": "/api",

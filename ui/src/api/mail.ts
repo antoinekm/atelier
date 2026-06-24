@@ -1,5 +1,12 @@
-import type { CloudflareConnection, CloudflareZone, MailDomain } from "@paperclipai/shared";
+import type { CloudflareConnection, CloudflareZone, MailAddress, MailDomain } from "@paperclipai/shared";
 import { api } from "./client";
+
+export interface CreateMailAddressInput {
+  domainId: string;
+  localPart: string;
+  kind?: "mailbox" | "alias" | "catch_all";
+  agentId?: string | null;
+}
 
 /** Embedded mail: Cloudflare connection + attached mail domains (phase 0). */
 export const mailApi = {
@@ -23,4 +30,11 @@ export const mailApi = {
     api.post<MailDomain>(`/companies/${companyId}/mail/domains/${id}/verify`, {}),
   removeDomain: (companyId: string, id: string) =>
     api.delete<void>(`/companies/${companyId}/mail/domains/${id}`),
+
+  listAddresses: (companyId: string) =>
+    api.get<MailAddress[]>(`/companies/${companyId}/mail/addresses`),
+  createAddress: (companyId: string, input: CreateMailAddressInput) =>
+    api.post<MailAddress>(`/companies/${companyId}/mail/addresses`, input),
+  removeAddress: (companyId: string, id: string) =>
+    api.delete<void>(`/companies/${companyId}/mail/addresses/${id}`),
 };

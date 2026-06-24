@@ -40,6 +40,8 @@ export const createMailAddressSchema = z.object({
     .max(64)
     .regex(/^(\*|[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)$/i, "Invalid local part"),
   kind: z.enum(["mailbox", "alias", "catch_all"]).optional(),
+  // Owning agent (company-level create only; null/omitted = company-shared).
+  agentId: z.string().uuid().nullable().optional(),
 });
 export type CreateMailAddress = z.infer<typeof createMailAddressSchema>;
 

@@ -212,6 +212,7 @@ export const queryKeys = {
     cloudflare: (companyId: string) => ["mail", "cloudflare", companyId] as const,
     cloudflareZones: (companyId: string) => ["mail", "cloudflare-zones", companyId] as const,
     domains: (companyId: string) => ["mail", "domains", companyId] as const,
+    addresses: (companyId: string) => ["mail", "addresses", companyId] as const,
   },
   companySearch: {
     search: (companyId: string, q: string, scope: string, limit: number, offset: number) =>

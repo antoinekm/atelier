@@ -26,6 +26,8 @@ import { resolveSkillSummaryText } from "../lib/company-skill-summary";
 import { AgentConfigForm } from "../components/AgentConfigForm";
 import { PageTabBar } from "../components/PageTabBar";
 import { AgentMemoryTab } from "../components/AgentMemoryTab";
+import { AgentMailTab } from "../components/mail/AgentMailTab";
+import { MailTabLabel } from "../components/mail/MailTabLabel";
 import { adapterLabels, roleLabels, help } from "../components/agent-config-primitives";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { useAdapterCapabilities } from "@/adapters/use-adapter-capabilities";
@@ -248,13 +250,14 @@ function scrollToContainerBottom(container: ScrollContainer, behavior: ScrollBeh
   container.scrollTo({ top: container.scrollHeight, behavior });
 }
 
-type AgentDetailView = "dashboard" | "instructions" | "configuration" | "skills" | "memory" | "runs" | "budget";
+type AgentDetailView = "dashboard" | "instructions" | "configuration" | "skills" | "memory" | "mail" | "runs" | "budget";
 
 function parseAgentDetailView(value: string | null): AgentDetailView {
   if (value === "instructions" || value === "prompts") return "instructions";
   if (value === "configure" || value === "configuration") return "configuration";
   if (value === "skills") return "skills";
   if (value === "memory") return "memory";
+  if (value === "mail") return "mail";
   if (value === "budget") return "budget";
   if (value === "runs") return value;
   return "dashboard";
@@ -777,11 +780,13 @@ export function AgentDetail() {
             ? "skills"
             : activeView === "memory"
               ? "memory"
-              : activeView === "runs"
-                ? "runs"
-                : activeView === "budget"
-                  ? "budget"
-                  : "dashboard";
+              : activeView === "mail"
+                ? "mail"
+                : activeView === "runs"
+                  ? "runs"
+                  : activeView === "budget"
+                    ? "budget"
+                    : "dashboard";
     if (routeAgentRef !== canonicalAgentRef || urlTab !== canonicalTab) {
       navigate(`/agents/${canonicalAgentRef}/${canonicalTab}`, { replace: true });
       return;
@@ -886,6 +891,8 @@ export function AgentDetail() {
       //   crumbs.push({ label: "Skills" });
       } else if (activeView === "memory") {
         crumbs.push({ label: "Memory" });
+      } else if (activeView === "mail") {
+        crumbs.push({ label: "Mail" });
       } else if (activeView === "runs") {
         crumbs.push({ label: "Runs" });
       } else if (activeView === "budget") {
@@ -1047,6 +1054,7 @@ export function AgentDetail() {
               { value: "instructions", label: "Instructions" },
               { value: "skills", label: "Skills" },
               { value: "memory", label: "Memory" },
+              { value: "mail", label: <MailTabLabel agentId={agent.id} /> },
               { value: "configuration", label: "Configuration" },
               { value: "runs", label: "Runs" },
               { value: "budget", label: "Budget" },
@@ -1166,6 +1174,8 @@ export function AgentDetail() {
       )}
 
       {activeView === "memory" && <AgentMemoryTab agentId={agent.id} />}
+
+      {activeView === "mail" && <AgentMailTab agentId={agent.id} />}
 
       {activeView === "runs" && (
         <RunsTab

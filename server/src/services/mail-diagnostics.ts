@@ -19,19 +19,40 @@ function makeResolver(servers?: string[]): Resolver {
 const publicResolver = makeResolver(PUBLIC_DNS);
 const systemResolver = makeResolver();
 
+// Only fall back to the system resolver when the public one was unreachable or
+// failed to answer, never on an authoritative "no record" (NXDOMAIN/ENODATA):
+// falling back there would reintroduce the stale local-cache results we want to
+// avoid. A no-record error propagates and is read as "missing" by the caller.
+const FALLBACK_CODES = new Set([
+  "ETIMEOUT",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ESERVFAIL",
+  "EREFUSED",
+  "ECANCELLED",
+  "ENOTIMP",
+  "EBADRESP",
+]);
+
+function shouldFallback(err: unknown): boolean {
+  return err instanceof Error && FALLBACK_CODES.has((err as NodeJS.ErrnoException).code ?? "");
+}
+
 async function resolve4(host: string): Promise<string[]> {
   try {
     return await publicResolver.resolve4(host);
-  } catch {
-    return systemResolver.resolve4(host);
+  } catch (err) {
+    if (shouldFallback(err)) return systemResolver.resolve4(host);
+    throw err;
   }
 }
 
 async function reverse(ip: string): Promise<string[]> {
   try {
     return await publicResolver.reverse(ip);
-  } catch {
-    return systemResolver.reverse(ip);
+  } catch (err) {
+    if (shouldFallback(err)) return systemResolver.reverse(ip);
+    throw err;
   }
 }
 

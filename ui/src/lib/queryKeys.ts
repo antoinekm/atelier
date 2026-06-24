@@ -208,6 +208,11 @@ export const queryKeys = {
     usage: (secretId: string) => ["secrets", "usage", secretId] as const,
     accessEvents: (secretId: string) => ["secrets", "access-events", secretId] as const,
   },
+  mail: {
+    cloudflare: (companyId: string) => ["mail", "cloudflare", companyId] as const,
+    cloudflareZones: (companyId: string) => ["mail", "cloudflare-zones", companyId] as const,
+    domains: (companyId: string) => ["mail", "domains", companyId] as const,
+  },
   companySearch: {
     search: (companyId: string, q: string, scope: string, limit: number, offset: number) =>
       ["company-search", companyId, q, scope, limit, offset] as const,

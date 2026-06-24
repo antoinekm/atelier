@@ -215,6 +215,15 @@ export const queryKeys = {
     addresses: (companyId: string) => ["mail", "addresses", companyId] as const,
     reverseDns: (companyId: string) => ["mail", "reverse-dns", companyId] as const,
   },
+  agentMail: {
+    addresses: (agentId: string) => ["agent-mail", agentId, "addresses"] as const,
+    list: (agentId: string, folder: string, q: string) =>
+      ["agent-mail", agentId, "list", folder, q] as const,
+    folders: (agentId: string) => ["agent-mail", agentId, "folders"] as const,
+    thread: (agentId: string, threadId: string) => ["agent-mail", agentId, "thread", threadId] as const,
+    message: (agentId: string, id: string) => ["agent-mail", agentId, "message", id] as const,
+    drafts: (agentId: string) => ["agent-mail", agentId, "drafts"] as const,
+  },
   companySearch: {
     search: (companyId: string, q: string, scope: string, limit: number, offset: number) =>
       ["company-search", companyId, q, scope, limit, offset] as const,

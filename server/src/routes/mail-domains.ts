@@ -54,7 +54,17 @@ export function mailDomainRoutes(db: Db) {
     const id = req.params.id as string;
     assertCompanyAccess(req, companyId);
     assertBoard(req);
-    res.json(await svc.verify(companyId, id));
+    const domain = await svc.verify(companyId, id);
+    await logActivity(db, {
+      companyId,
+      actorType: "user",
+      actorId: getActorInfo(req).actorId,
+      action: "mail_domain_verified",
+      entityType: "mail_domain",
+      entityId: domain.id,
+      details: { domain: domain.domain, status: domain.status },
+    });
+    res.json(domain);
   });
 
   // Detach a mail domain.

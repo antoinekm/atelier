@@ -52,7 +52,19 @@ export function cloudflareIntegrationRoutes(db: Db) {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     assertBoard(req);
+    const existing = await svc.get(companyId);
     await svc.disconnect(companyId);
+    if (existing) {
+      await logActivity(db, {
+        companyId,
+        actorType: "user",
+        actorId: getActorInfo(req).actorId,
+        action: "cloudflare_disconnected",
+        entityType: "cloudflare_connection",
+        entityId: existing.id,
+        details: { cfAccountId: existing.cfAccountId },
+      });
+    }
     res.status(204).end();
   });
 

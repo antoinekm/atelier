@@ -242,22 +242,34 @@ export function mailDomainService(db: Db) {
       const row = await getRow(companyId, id);
       if (!row) throw notFound("Mail domain not found");
       if (!row.cfZoneId || !row.dkimPublicKey) throw unprocessable("Domain is missing zone or DKIM key");
-      const flags = await publishRecords(companyId, row.cfZoneId, row.domain, row.dkimPublicKey);
-      const status = flags.mx && flags.spf ? "active" : "dns_configured";
-      const updated = await db
-        .update(mailDomains)
-        .set({
-          mxConfigured: flags.mx,
-          spfConfigured: flags.spf,
-          dmarcConfigured: flags.dmarc,
-          status,
-          lastError: null,
-          updatedAt: new Date(),
-        })
-        .where(eq(mailDomains.id, id))
-        .returning()
-        .then((rows) => rows[0]);
-      return toMailDomain(updated);
+      try {
+        const flags = await publishRecords(companyId, row.cfZoneId, row.domain, row.dkimPublicKey);
+        const status = flags.mx && flags.spf ? "active" : "dns_configured";
+        const updated = await db
+          .update(mailDomains)
+          .set({
+            mxConfigured: flags.mx,
+            spfConfigured: flags.spf,
+            dmarcConfigured: flags.dmarc,
+            status,
+            lastError: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(mailDomains.id, id))
+          .returning()
+          .then((rows) => rows[0]);
+        return toMailDomain(updated);
+      } catch (err) {
+        logger.warn({ err, companyId, domain: row.domain }, "failed to re-publish mail DNS records");
+        const message = err instanceof Error ? err.message : "DNS publish failed";
+        const updated = await db
+          .update(mailDomains)
+          .set({ status: "failed", lastError: message, updatedAt: new Date() })
+          .where(eq(mailDomains.id, id))
+          .returning()
+          .then((rows) => rows[0]);
+        return toMailDomain(updated);
+      }
     },
 
     remove: async (companyId: string, id: string): Promise<void> => {
@@ -267,6 +279,10 @@ export function mailDomainService(db: Db) {
         .returning()
         .then((rows) => rows[0] ?? null);
       if (!deleted) throw notFound("Mail domain not found");
+      // Best-effort cleanup of the domain's DKIM private key secret.
+      if (deleted.dkimPrivateKeySecretId) {
+        await secrets.remove(deleted.dkimPrivateKeySecretId).catch(() => {});
+      }
     },
   };
 }

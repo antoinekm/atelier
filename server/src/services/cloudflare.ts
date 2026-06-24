@@ -50,6 +50,10 @@ async function cfFetch<T = unknown>(
       "Content-Type": "application/json",
     },
     body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
+    // Don't let a hung Cloudflare request stall a request handler indefinitely.
+    signal: AbortSignal.timeout(15_000),
+  }).catch((err) => {
+    throw unprocessable(`Cloudflare: ${err instanceof Error ? err.message : "request failed"}`);
   });
   const json = (await res.json().catch(() => null)) as
     | { success?: boolean; result?: T; errors?: Array<{ message?: string }> }
@@ -178,15 +182,23 @@ export function cloudflareService(db: Db) {
       const row = await getRow(companyId);
       if (!row) return;
       await db.delete(cloudflareConnections).where(eq(cloudflareConnections.id, row.id));
+      // Best-effort cleanup of the stored token secret so it doesn't linger.
+      await secrets.remove(row.apiTokenSecretId).catch(() => {});
     },
 
-    /** List the zones (domains) the connected account can manage. */
+    /** List the zones (domains) the connected account can manage (all pages). */
     listZones: async (companyId: string): Promise<CloudflareZone[]> => {
       const token = await getToken(companyId);
-      const zones = await cfFetch<Array<{ id: string; name: string; status: string }>>(token, "/zones", {
-        query: { "per_page": "50" },
-      });
-      return zones.map((z) => ({ id: z.id, name: z.name, status: z.status }));
+      const perPage = 50;
+      const out: CloudflareZone[] = [];
+      for (let page = 1; page <= 20; page++) {
+        const zones = await cfFetch<Array<{ id: string; name: string; status: string }>>(token, "/zones", {
+          query: { per_page: String(perPage), page: String(page) },
+        });
+        out.push(...zones.map((z) => ({ id: z.id, name: z.name, status: z.status })));
+        if (zones.length < perPage) break;
+      }
+      return out;
     },
 
     /** Resolve a zone id for a domain name owned by the connected account. */

@@ -56,6 +56,18 @@ EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;
 --> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "cloudflare_connections" ADD CONSTRAINT "cloudflare_connections_api_token_secret_id_company_secrets_id_fk" FOREIGN KEY ("api_token_secret_id") REFERENCES "public"."company_secrets"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "mail_domains" ADD CONSTRAINT "mail_domains_dkim_private_key_secret_id_company_secrets_id_fk" FOREIGN KEY ("dkim_private_key_secret_id") REFERENCES "public"."company_secrets"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "cloudflare_connections_company_uq" ON "cloudflare_connections" USING btree ("company_id");--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "mail_domains_company_domain_uq" ON "mail_domains" USING btree ("company_id","domain");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "mail_domains_company_status_idx" ON "mail_domains" USING btree ("company_id","status");

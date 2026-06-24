@@ -58,7 +58,7 @@ service+routes+run-context pattern as memory / MCP / credentials.
 Agents never talk SMTP; they call the control-plane REST API
 (`$PAPERCLIP_API_URL` + `$PAPERCLIP_API_KEY`), exactly like every other capability.
 
-```
+```text
 agent run ──REST──> server (enqueue row) ──poll──> outbound worker (DKIM + direct-MX) ──> internet
 internet ──SMTP25──> inbound listener (store row) ──> server inbox API ──run-context──> agent run
 DNS ──CF API──> cloudflareService (in server)

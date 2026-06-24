@@ -22,6 +22,9 @@ export const attachDomainSchema = z.object({
     .trim()
     .min(1)
     .max(253)
-    .regex(/^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)+$/i, "Must be a valid domain name"),
+    .regex(
+      /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i,
+      "Must be a valid domain name",
+    ),
 });
 export type AttachDomain = z.infer<typeof attachDomainSchema>;

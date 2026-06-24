@@ -522,6 +522,23 @@ export type CloudflareConnectionStatus = (typeof CLOUDFLARE_CONNECTION_STATUSES)
 export const MAIL_DOMAIN_STATUSES = ["pending", "dns_configured", "active", "failed"] as const;
 export type MailDomainStatus = (typeof MAIL_DOMAIN_STATUSES)[number];
 
+export const MAIL_ADDRESS_KINDS = ["mailbox", "alias", "catch_all"] as const;
+export type MailAddressKind = (typeof MAIL_ADDRESS_KINDS)[number];
+
+export const MAIL_MESSAGE_DIRECTIONS = ["inbound", "outbound"] as const;
+export type MailMessageDirection = (typeof MAIL_MESSAGE_DIRECTIONS)[number];
+
+export const MAIL_MESSAGE_STATUSES = [
+  "received",
+  "read",
+  "queued",
+  "sending",
+  "sent",
+  "failed",
+  "bounced",
+] as const;
+export type MailMessageStatus = (typeof MAIL_MESSAGE_STATUSES)[number];
+
 export const APPROVAL_STATUSES = [
   "pending",
   "revision_requested",

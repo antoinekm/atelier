@@ -9,6 +9,8 @@ export const API = {
   cloudflareConnection: `${API_PREFIX}/companies/:companyId/integrations/cloudflare`,
   cloudflareZones: `${API_PREFIX}/companies/:companyId/integrations/cloudflare/zones`,
   mailDomains: `${API_PREFIX}/companies/:companyId/mail/domains`,
+  agentMailAddresses: `${API_PREFIX}/agents/:agentId/email/addresses`,
+  agentInbox: `${API_PREFIX}/agents/:agentId/email/inbox`,
   projects: `${API_PREFIX}/projects`,
   issues: `${API_PREFIX}/issues`,
   issueWatchdog: `${API_PREFIX}/issues/:issueId/watchdog`,

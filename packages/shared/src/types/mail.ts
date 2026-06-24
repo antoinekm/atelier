@@ -1,4 +1,10 @@
-import type { CloudflareConnectionStatus, MailDomainStatus } from "../constants.js";
+import type {
+  CloudflareConnectionStatus,
+  MailAddressKind,
+  MailDomainStatus,
+  MailMessageDirection,
+  MailMessageStatus,
+} from "../constants.js";
 
 /**
  * A company's Cloudflare connection, projected for the API. The stored API-token
@@ -41,4 +47,38 @@ export interface MailDomain {
   lastError: string | null;
   createdAt: string | Date;
   updatedAt: string | Date;
+}
+
+/** An email address on an attached mail domain. */
+export interface MailAddress {
+  id: string;
+  companyId: string;
+  domainId: string;
+  agentId: string | null;
+  localPart: string;
+  address: string;
+  kind: MailAddressKind;
+  status: string;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
+
+/** A stored email message (inbound in phase 1; outbound in phase 2). */
+export interface MailMessage {
+  id: string;
+  companyId: string;
+  addressId: string;
+  agentId: string | null;
+  direction: MailMessageDirection;
+  messageId: string | null;
+  inReplyTo: string | null;
+  fromAddr: string;
+  toAddrs: string[];
+  ccAddrs: string[];
+  subject: string | null;
+  textBody: string | null;
+  htmlBody: string | null;
+  status: MailMessageStatus;
+  readAt: string | Date | null;
+  createdAt: string | Date;
 }

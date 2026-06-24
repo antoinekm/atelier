@@ -9,6 +9,8 @@ export { agentMcpServerService } from "./agent-mcp-servers.js";
 export { agentMemoryConsolidationService } from "./agent-memory-consolidation.js";
 export { cloudflareService } from "./cloudflare.js";
 export { mailDomainService } from "./mail-domains.js";
+export { mailAddressService } from "./mail-addresses.js";
+export { mailMessageService } from "./mail-messages.js";
 export { agentInstructionsService, syncInstructionsBundleConfigFromFilePath } from "./agent-instructions.js";
 export { assetService } from "./assets.js";
 export { documentService, extractLegacyPlanBody } from "./documents.js";

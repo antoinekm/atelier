@@ -137,6 +137,7 @@ import {
   setAgentMcpServerStatusSchema,
   connectCloudflareSchema,
   attachDomainSchema,
+  createMailAddressSchema,
   provideCredentialSchema,
 } from "@paperclipai/shared";
 
@@ -4677,6 +4678,47 @@ registerCurrentRoute({
   tags: ["companies"],
   summary: "Detach a mail domain",
   responses: { 204: r.noContent, 401: r.unauthorized, 404: r.notFound },
+});
+
+// ─── Agent email (embedded mail, reception) ─────────────────────────────────
+registerCurrentRoute({
+  method: "get",
+  path: "/api/agents/{agentId}/email/addresses",
+  tags: ["agents"],
+  summary: "List an agent's email addresses",
+});
+registerCurrentRoute({
+  method: "post",
+  path: "/api/agents/{agentId}/email/addresses",
+  tags: ["agents"],
+  summary: "Create an email address for an agent",
+  body: createMailAddressSchema,
+  responses: { 201: r.ok(), 400: r.badRequest, 401: r.unauthorized, 404: r.notFound },
+});
+registerCurrentRoute({
+  method: "delete",
+  path: "/api/agents/{agentId}/email/addresses/{id}",
+  tags: ["agents"],
+  summary: "Delete an agent email address",
+  responses: { 204: r.noContent, 401: r.unauthorized, 404: r.notFound },
+});
+registerCurrentRoute({
+  method: "get",
+  path: "/api/agents/{agentId}/email/inbox",
+  tags: ["agents"],
+  summary: "Read an agent's inbox",
+});
+registerCurrentRoute({
+  method: "get",
+  path: "/api/agents/{agentId}/email/messages/{id}",
+  tags: ["agents"],
+  summary: "Get one email message",
+});
+registerCurrentRoute({
+  method: "post",
+  path: "/api/agents/{agentId}/email/messages/{id}/read",
+  tags: ["agents"],
+  summary: "Mark an email message as read",
 });
 
 // ─── Spec builder ─────────────────────────────────────────────────────────────

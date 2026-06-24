@@ -3,11 +3,37 @@ import type { MailReverseDnsStatus } from "@paperclipai/shared";
 
 const CACHE_TTL_MS = 60_000;
 
-// A bounded resolver so "Recheck" fails fast on a slow or unreachable DNS server
-// instead of hanging the request for the c-ares default (~several seconds).
-const resolver = new Resolver({ timeout: 3000, tries: 1 });
-const resolve4 = (host: string) => resolver.resolve4(host);
-const reverse = (ip: string) => resolver.reverse(ip);
+// Query public resolvers so the check reflects what external mail servers (Gmail,
+// Yahoo, etc.) see, not the local/Docker caching resolver, which can lag behind a
+// PTR change for the full record TTL (OVH publishes PTRs with a 24h TTL). Bounded
+// timeout/tries so "Recheck" fails fast instead of hanging the request. Falls back
+// to the system resolver if the public ones are unreachable from this host.
+const PUBLIC_DNS = ["1.1.1.1", "8.8.8.8"];
+
+function makeResolver(servers?: string[]): Resolver {
+  const r = new Resolver({ timeout: 3000, tries: 1 });
+  if (servers) r.setServers(servers);
+  return r;
+}
+
+const publicResolver = makeResolver(PUBLIC_DNS);
+const systemResolver = makeResolver();
+
+async function resolve4(host: string): Promise<string[]> {
+  try {
+    return await publicResolver.resolve4(host);
+  } catch {
+    return systemResolver.resolve4(host);
+  }
+}
+
+async function reverse(ip: string): Promise<string[]> {
+  try {
+    return await publicResolver.reverse(ip);
+  } catch {
+    return systemResolver.reverse(ip);
+  }
+}
 
 // Reverse DNS is instance-level (one sending IP for the whole deployment), so the
 // result is the same for every company; a single in-process cache is enough.

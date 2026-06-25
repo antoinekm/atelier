@@ -490,6 +490,7 @@ export {
   draftSchema,
   mailFlagSchema,
   mailListQuerySchema,
+  createSenderBlockSchema,
   mailInboxQuerySchema,
   type ConnectCloudflare,
   type AttachDomain,
@@ -498,6 +499,7 @@ export {
   type DraftInput,
   type MailFlagInput,
   type MailListQuery,
+  type CreateSenderBlock,
   type MailInboxQuery,
 } from "./mail.js";
 

@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { agents, companies, createDb, mailAddresses, mailDomains } from "@paperclipai/db";
 import { mailAddressService } from "../services/mail-addresses.ts";
 import { mailMessageService } from "../services/mail-messages.ts";
+import { mailSenderBlockService } from "../services/mail-sender-blocks.ts";
 import { startMailListener, type MailListenerHandle } from "../mail/smtp-listener.ts";
 import {
   getEmbeddedPostgresTestSupport,
@@ -125,5 +126,20 @@ describeEmbeddedPostgres("mail SMTP listener (embedded mail, phase 1)", () => {
     expect(await c2.send("RCPT TO:<nobody@example.com>")).toMatch(/^550/);
     await c2.send("QUIT").catch(() => undefined);
     c2.end();
+  }, 20_000);
+
+  it("rejects a sender on a blocked domain at RCPT TO", async () => {
+    await mailSenderBlockService(db).add(
+      ctx.companyId,
+      { kind: "domain", value: "spam.com" },
+      { actorType: "user", actorId: "board" },
+    );
+    const c = smtpClient(SMTP_PORT);
+    await c.expect();
+    await c.send("EHLO test.local");
+    await c.send("MAIL FROM:<bad@mail.spam.com>");
+    expect(await c.send("RCPT TO:<ceo@example.com>")).toMatch(/^550/);
+    await c.send("QUIT").catch(() => undefined);
+    c.end();
   }, 20_000);
 });

@@ -316,10 +316,12 @@ export {
   MAIL_MESSAGE_DIRECTIONS,
   MAIL_MESSAGE_STATUSES,
   MAIL_FOLDERS,
+  MAIL_SENDER_BLOCK_KINDS,
   type MailAddressKind,
   type MailMessageDirection,
   type MailMessageStatus,
   type MailFolder,
+  type MailSenderBlockKind,
 } from "./constants.js";
 
 export {
@@ -836,6 +838,7 @@ export type {
   MailThread,
   MailListPage,
   MailFolderCounts,
+  MailSenderBlock,
   MailReverseDnsStatus,
 } from "./types/index.js";
 export { COMPANY_SEARCH_SCOPES } from "./types/index.js";
@@ -981,6 +984,7 @@ export {
   draftSchema,
   mailFlagSchema,
   mailListQuerySchema,
+  createSenderBlockSchema,
   mailInboxQuerySchema,
   type ConnectCloudflare,
   type AttachDomain,
@@ -989,6 +993,7 @@ export {
   type DraftInput,
   type MailFlagInput,
   type MailListQuery,
+  type CreateSenderBlock,
   type MailInboxQuery,
 } from "./validators/index.js";
 

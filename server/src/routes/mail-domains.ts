@@ -1,11 +1,12 @@
 import { Router } from "express";
 import type { Db } from "@paperclipai/db";
-import { attachDomainSchema, createMailAddressSchema } from "@paperclipai/shared";
+import { attachDomainSchema, createMailAddressSchema, createSenderBlockSchema } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
 import {
   mailDomainService,
   mailAddressService,
   mailDiagnosticsService,
+  mailSenderBlockService,
   logActivity,
 } from "../services/index.js";
 import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
@@ -19,6 +20,7 @@ export function mailDomainRoutes(db: Db) {
   const router = Router();
   const svc = mailDomainService(db);
   const addressSvc = mailAddressService(db);
+  const blockSvc = mailSenderBlockService(db);
 
   // List attached mail domains.
   router.get("/companies/:companyId/mail/domains", async (req, res) => {
@@ -147,6 +149,49 @@ export function mailDomainRoutes(db: Db) {
     assertCompanyAccess(req, companyId);
     assertBoard(req);
     await addressSvc.remove(companyId, id);
+    res.status(204).end();
+  });
+
+  // ─── Sender blocklist (board management for the UI) ────────────────────────
+
+  router.get("/companies/:companyId/mail/blocklist", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    assertBoard(req);
+    res.json(await blockSvc.list(companyId));
+  });
+
+  router.post(
+    "/companies/:companyId/mail/blocklist",
+    validate(createSenderBlockSchema),
+    async (req, res) => {
+      const companyId = req.params.companyId as string;
+      assertCompanyAccess(req, companyId);
+      assertBoard(req);
+      const info = getActorInfo(req);
+      const block = await blockSvc.add(companyId, req.body, {
+        actorType: info.actorType,
+        actorId: info.actorId,
+      });
+      await logActivity(db, {
+        companyId,
+        actorType: info.actorType,
+        actorId: info.actorId,
+        action: "mail_sender_blocked",
+        entityType: "mail_sender_block",
+        entityId: block.id,
+        details: { kind: block.kind, value: block.value },
+      });
+      res.status(201).json(block);
+    },
+  );
+
+  router.delete("/companies/:companyId/mail/blocklist/:id", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    const id = req.params.id as string;
+    assertCompanyAccess(req, companyId);
+    assertBoard(req);
+    await blockSvc.remove(companyId, id);
     res.status(204).end();
   });
 

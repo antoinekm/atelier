@@ -2,7 +2,9 @@ import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import type { Db } from "@paperclipai/db";
 import {
+  attachDomainSchema,
   createMailAddressSchema,
+  createSenderBlockSchema,
   draftSchema,
   mailFlagSchema,
   mailInboxQuerySchema,
@@ -13,8 +15,10 @@ import { validate } from "../middleware/validate.js";
 import {
   agentService,
   mailAddressService,
+  mailDomainService,
   mailMessageService,
   mailOutboundGuard,
+  mailSenderBlockService,
   logActivity,
 } from "../services/index.js";
 import { forbidden, notFound, unprocessable } from "../errors.js";
@@ -60,6 +64,8 @@ export function agentEmailRoutes(db: Db, storage: StorageService) {
   const agents = agentService(db);
   const addresses = mailAddressService(db);
   const messages = mailMessageService(db);
+  const domains = mailDomainService(db);
+  const blocks = mailSenderBlockService(db);
   const outboundGuard = mailOutboundGuard(db);
 
   const attachmentUpload = multer({
@@ -452,6 +458,116 @@ export function agentEmailRoutes(db: Db, storage: StorageService) {
     if (!first) throw unprocessable("The agent has no email address yet");
     return first;
   }
+
+  // ─── Domains (the agent operates the company's mail domains) ───────────────
+
+  router.get("/agents/:agentId/email/domains", async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const { companyId } = await resolveContext(req, agentId);
+    res.json(await domains.list(companyId));
+  });
+
+  router.get("/agents/:agentId/email/domains/zones", async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const { companyId } = await resolveContext(req, agentId);
+    res.json(await domains.listAttachableZones(companyId));
+  });
+
+  router.post("/agents/:agentId/email/domains", validate(attachDomainSchema), async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const { companyId, actor } = await resolveContext(req, agentId);
+    const domain = await domains.attach(companyId, req.body.domain, actor);
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      action: "mail_domain_attached",
+      entityType: "mail_domain",
+      entityId: domain.id,
+      agentId,
+      details: { domain: domain.domain, status: domain.status },
+    });
+    res.status(201).json(domain);
+  });
+
+  router.post("/agents/:agentId/email/domains/:id/verify", async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const id = req.params.id as string;
+    const { companyId, actor } = await resolveContext(req, agentId);
+    const domain = await domains.verify(companyId, id);
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      action: "mail_domain_verified",
+      entityType: "mail_domain",
+      entityId: domain.id,
+      agentId,
+      details: { domain: domain.domain, status: domain.status },
+    });
+    res.json(domain);
+  });
+
+  router.delete("/agents/:agentId/email/domains/:id", async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const id = req.params.id as string;
+    const { companyId, actor } = await resolveContext(req, agentId);
+    const domain = await domains.get(companyId, id);
+    await domains.remove(companyId, id);
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      action: "mail_domain_detached",
+      entityType: "mail_domain",
+      entityId: id,
+      agentId,
+      details: { domain: domain.domain },
+    });
+    res.status(204).end();
+  });
+
+  // ─── Sender blocklist (block an address or a whole domain) ─────────────────
+
+  router.get("/agents/:agentId/email/blocklist", async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const { companyId } = await resolveContext(req, agentId);
+    res.json(await blocks.list(companyId));
+  });
+
+  router.post("/agents/:agentId/email/blocklist", validate(createSenderBlockSchema), async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const { companyId, actor } = await resolveContext(req, agentId);
+    const block = await blocks.add(companyId, req.body, actor);
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      action: "mail_sender_blocked",
+      entityType: "mail_sender_block",
+      entityId: block.id,
+      agentId,
+      details: { kind: block.kind, value: block.value },
+    });
+    res.status(201).json(block);
+  });
+
+  router.delete("/agents/:agentId/email/blocklist/:id", async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const id = req.params.id as string;
+    const { companyId, actor } = await resolveContext(req, agentId);
+    await blocks.remove(companyId, id);
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      action: "mail_sender_unblocked",
+      entityType: "mail_sender_block",
+      entityId: id,
+      agentId,
+    });
+    res.status(204).end();
+  });
 
   return router;
 }

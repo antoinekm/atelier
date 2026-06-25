@@ -138,6 +138,7 @@ import {
   connectCloudflareSchema,
   attachDomainSchema,
   createMailAddressSchema,
+  createSenderBlockSchema,
   sendEmailSchema,
   draftSchema,
   mailFlagSchema,
@@ -559,6 +560,9 @@ const BOARD_ONLY_OPERATIONS = new Set([
   "POST /api/companies/{companyId}/mail/domains/{id}/verify",
   "DELETE /api/companies/{companyId}/mail/domains/{id}",
   "GET /api/companies/{companyId}/mail/reverse-dns",
+  "GET /api/companies/{companyId}/mail/blocklist",
+  "POST /api/companies/{companyId}/mail/blocklist",
+  "DELETE /api/companies/{companyId}/mail/blocklist/{id}",
   "GET /api/companies",
   "POST /api/companies",
   "GET /api/companies/stats",
@@ -4711,6 +4715,27 @@ registerCurrentRoute({
   summary: "Delete a mail address",
   responses: { 204: r.noContent, 401: r.unauthorized, 404: r.notFound },
 });
+registerCurrentRoute({
+  method: "get",
+  path: "/api/companies/{companyId}/mail/blocklist",
+  tags: ["companies"],
+  summary: "List blocked senders",
+});
+registerCurrentRoute({
+  method: "post",
+  path: "/api/companies/{companyId}/mail/blocklist",
+  tags: ["companies"],
+  summary: "Block a sender (address or domain)",
+  body: createSenderBlockSchema,
+  responses: { 201: r.ok(), 400: r.badRequest, 401: r.unauthorized, 404: r.notFound },
+});
+registerCurrentRoute({
+  method: "delete",
+  path: "/api/companies/{companyId}/mail/blocklist/{id}",
+  tags: ["companies"],
+  summary: "Unblock a sender",
+  responses: { 204: r.noContent, 401: r.unauthorized, 404: r.notFound },
+});
 
 // ─── Agent email (embedded mail, reception) ─────────────────────────────────
 registerCurrentRoute({
@@ -4858,6 +4883,60 @@ registerCurrentRoute({
   tags: ["agents"],
   summary: "Send a draft",
   responses: { 202: r.ok(), 400: r.badRequest, 401: r.unauthorized, 404: r.notFound },
+});
+registerCurrentRoute({
+  method: "get",
+  path: "/api/agents/{agentId}/email/domains",
+  tags: ["agents"],
+  summary: "List the company's mail domains (agent-operated)",
+});
+registerCurrentRoute({
+  method: "get",
+  path: "/api/agents/{agentId}/email/domains/zones",
+  tags: ["agents"],
+  summary: "List attachable Cloudflare zones",
+});
+registerCurrentRoute({
+  method: "post",
+  path: "/api/agents/{agentId}/email/domains",
+  tags: ["agents"],
+  summary: "Attach a mail domain",
+  body: attachDomainSchema,
+  responses: { 201: r.ok(), 400: r.badRequest, 401: r.unauthorized, 404: r.notFound },
+});
+registerCurrentRoute({
+  method: "post",
+  path: "/api/agents/{agentId}/email/domains/{id}/verify",
+  tags: ["agents"],
+  summary: "Verify a mail domain's DNS",
+});
+registerCurrentRoute({
+  method: "delete",
+  path: "/api/agents/{agentId}/email/domains/{id}",
+  tags: ["agents"],
+  summary: "Detach a mail domain",
+  responses: { 204: r.noContent, 401: r.unauthorized, 404: r.notFound },
+});
+registerCurrentRoute({
+  method: "get",
+  path: "/api/agents/{agentId}/email/blocklist",
+  tags: ["agents"],
+  summary: "List blocked senders",
+});
+registerCurrentRoute({
+  method: "post",
+  path: "/api/agents/{agentId}/email/blocklist",
+  tags: ["agents"],
+  summary: "Block a sender (address or domain)",
+  body: createSenderBlockSchema,
+  responses: { 201: r.ok(), 400: r.badRequest, 401: r.unauthorized, 404: r.notFound },
+});
+registerCurrentRoute({
+  method: "delete",
+  path: "/api/agents/{agentId}/email/blocklist/{id}",
+  tags: ["agents"],
+  summary: "Unblock a sender",
+  responses: { 204: r.noContent, 401: r.unauthorized, 404: r.notFound },
 });
 
 // ─── Spec builder ─────────────────────────────────────────────────────────────

@@ -1,5 +1,7 @@
 import { z } from "zod";
-import { MAIL_FOLDERS, MAIL_MESSAGE_STATUSES } from "../constants.js";
+import { MAIL_FOLDERS, MAIL_MESSAGE_STATUSES, MAIL_SENDER_BLOCK_KINDS } from "../constants.js";
+
+const DOMAIN_RE = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
 
 /**
  * Connect a Cloudflare account by API token (embedded mail, phase 0). The token
@@ -110,6 +112,24 @@ export const mailListQuerySchema = z.object({
   threaded: z.coerce.boolean().optional().default(true),
 });
 export type MailListQuery = z.infer<typeof mailListQuerySchema>;
+
+/** Block a sender: a single address or a whole domain (incl. subdomains). */
+export const createSenderBlockSchema = z
+  .object({
+    kind: z.enum(MAIL_SENDER_BLOCK_KINDS),
+    value: z.string().trim().min(1).max(253),
+    reason: z.string().trim().max(500).optional(),
+  })
+  .superRefine((d, ctx) => {
+    const value = d.value.toLowerCase();
+    if (d.kind === "address" && !z.string().email().safeParse(value).success) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["value"], message: "Must be a valid email address" });
+    }
+    if (d.kind === "domain" && !DOMAIN_RE.test(value)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["value"], message: "Must be a valid domain" });
+    }
+  });
+export type CreateSenderBlock = z.infer<typeof createSenderBlockSchema>;
 
 /** Inbox listing query (agent run-context API; kept stable for back-compat). */
 export const mailInboxQuerySchema = z.object({

@@ -214,6 +214,7 @@ export const queryKeys = {
     domains: (companyId: string) => ["mail", "domains", companyId] as const,
     addresses: (companyId: string) => ["mail", "addresses", companyId] as const,
     reverseDns: (companyId: string) => ["mail", "reverse-dns", companyId] as const,
+    blocklist: (companyId: string) => ["mail", "blocklist", companyId] as const,
   },
   agentMail: {
     addresses: (agentId: string) => ["agent-mail", agentId, "addresses"] as const,

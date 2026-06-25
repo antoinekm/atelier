@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AtSign, Inbox, Loader2, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
-import type { MailAddress, MailDomain } from "@paperclipai/shared";
+import { AtSign, Ban, Inbox, Loader2, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
+import type { MailAddress, MailDomain, MailSenderBlockKind } from "@paperclipai/shared";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useToastActions } from "../context/ToastContext";
@@ -35,6 +35,8 @@ export function CompanySettingsMail() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [domainId, setDomainId] = useState("");
   const [localPart, setLocalPart] = useState("");
+  const [blockKind, setBlockKind] = useState<MailSenderBlockKind>("domain");
+  const [blockValue, setBlockValue] = useState("");
 
   useEffect(() => {
     setBreadcrumbs([{ label: "Mail" }]);
@@ -62,6 +64,11 @@ export function CompanySettingsMail() {
     queryFn: () => mailApi.getReverseDns(companyId!),
     enabled: Boolean(companyId),
   });
+  const blocklistQuery = useQuery({
+    queryKey: companyId ? queryKeys.mail.blocklist(companyId) : ["mail", "blocklist", "none"],
+    queryFn: () => mailApi.listBlocks(companyId!),
+    enabled: Boolean(companyId),
+  });
 
   const toastError = (e: unknown, fallback: string) =>
     pushToast({ tone: "error", title: e instanceof ApiError ? e.message : fallback });
@@ -84,6 +91,25 @@ export function CompanySettingsMail() {
       invalidate();
     },
     onError: (e) => toastError(e, "Failed to delete address"),
+  });
+  const invalidateBlocks = () =>
+    queryClient.invalidateQueries({ queryKey: queryKeys.mail.blocklist(companyId!) });
+  const addBlockMutation = useMutation({
+    mutationFn: () => mailApi.addBlock(companyId!, { kind: blockKind, value: blockValue.trim() }),
+    onSuccess: (block) => {
+      setBlockValue("");
+      pushToast({ tone: "success", title: `Blocked ${block.value}` });
+      invalidateBlocks();
+    },
+    onError: (e) => toastError(e, "Failed to block sender"),
+  });
+  const removeBlockMutation = useMutation({
+    mutationFn: (id: string) => mailApi.removeBlock(companyId!, id),
+    onSuccess: () => {
+      pushToast({ tone: "success", title: "Unblocked" });
+      invalidateBlocks();
+    },
+    onError: (e) => toastError(e, "Failed to unblock"),
   });
   const recheckRdnsMutation = useMutation({
     mutationFn: () => mailApi.getReverseDns(companyId!, true),
@@ -307,6 +333,71 @@ export function CompanySettingsMail() {
               </Button>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Ban className="h-4 w-4" /> Blocked senders
+          </CardTitle>
+          <CardDescription>
+            Reject mail from an address or a whole domain (incl. subdomains). Agents can manage this
+            too.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {(blocklistQuery.data ?? []).length > 0 && (
+            <div className="overflow-hidden rounded-md border">
+              {(blocklistQuery.data ?? []).map((block) => (
+                <div
+                  key={block.id}
+                  className="flex items-center gap-2 border-b px-3 py-2 text-sm last:border-b-0"
+                >
+                  <Badge variant="outline">{block.kind}</Badge>
+                  <span className="font-mono">{block.value}</span>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    className="ml-auto"
+                    disabled={removeBlockMutation.isPending}
+                    title="Unblock"
+                    onClick={() => removeBlockMutation.mutate(block.id)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Select value={blockKind} onValueChange={(v) => setBlockKind(v as MailSenderBlockKind)}>
+              <SelectTrigger className="sm:w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="domain">Domain</SelectItem>
+                <SelectItem value="address">Address</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input
+              className="sm:flex-1"
+              placeholder={blockKind === "domain" ? "example.com" : "spammer@example.com"}
+              value={blockValue}
+              onChange={(e) => setBlockValue(e.target.value)}
+            />
+            <Button
+              disabled={!blockValue.trim() || addBlockMutation.isPending}
+              onClick={() => addBlockMutation.mutate()}
+            >
+              {addBlockMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Ban className="h-4 w-4" />
+              )}
+              Block
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>

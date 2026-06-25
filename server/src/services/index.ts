@@ -13,6 +13,7 @@ export { mailAddressService } from "./mail-addresses.js";
 export { mailMessageService } from "./mail-messages.js";
 export { mailDiagnosticsService } from "./mail-diagnostics.js";
 export { mailOutboundGuard } from "./mail-outbound-guard.js";
+export { mailSenderBlockService } from "./mail-sender-blocks.js";
 export { agentInstructionsService, syncInstructionsBundleConfigFromFilePath } from "./agent-instructions.js";
 export { assetService } from "./assets.js";
 export { documentService, extractLegacyPlanBody } from "./documents.js";

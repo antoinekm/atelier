@@ -4,6 +4,8 @@ import type {
   MailAddress,
   MailDomain,
   MailReverseDnsStatus,
+  MailSenderBlock,
+  MailSenderBlockKind,
 } from "@paperclipai/shared";
 import { api } from "./client";
 
@@ -48,4 +50,11 @@ export const mailApi = {
     api.post<MailAddress>(`/companies/${companyId}/mail/addresses`, input),
   removeAddress: (companyId: string, id: string) =>
     api.delete<void>(`/companies/${companyId}/mail/addresses/${id}`),
+
+  listBlocks: (companyId: string) =>
+    api.get<MailSenderBlock[]>(`/companies/${companyId}/mail/blocklist`),
+  addBlock: (companyId: string, input: { kind: MailSenderBlockKind; value: string; reason?: string }) =>
+    api.post<MailSenderBlock>(`/companies/${companyId}/mail/blocklist`, input),
+  removeBlock: (companyId: string, id: string) =>
+    api.delete<void>(`/companies/${companyId}/mail/blocklist/${id}`),
 };

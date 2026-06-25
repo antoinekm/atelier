@@ -15,6 +15,8 @@ import type {
   MailThreadSummary,
 } from "@paperclipai/shared";
 import { notFound, unprocessable } from "../errors.js";
+import { mailAddressService } from "./mail-addresses.js";
+import { mailDomainService } from "./mail-domains.js";
 
 const MAX_SEND_ATTEMPTS = 5;
 const SUBJECT_THREAD_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
@@ -824,6 +826,39 @@ export function mailMessageService(db: Db) {
         .then((rows) => rows[0] ?? null);
       if (!row) throw notFound("Attachment not found");
       return row;
+    },
+
+    /**
+     * Standing, TRUSTED capability note injected every run so the agent always
+     * knows it operates a real mailbox (addresses + domains) and how to use it,
+     * even when the inbox is empty. Distinct from the untrusted unread digest.
+     * Returns "" when the agent has no address yet (no domain attached).
+     */
+    buildRunMailCapabilityNote: async (companyId: string, agentId: string): Promise<string> => {
+      const [addrs, domains] = await Promise.all([
+        mailAddressService(db).list(companyId, { agentId }),
+        mailDomainService(db).list(companyId),
+      ]);
+      if (addrs.length === 0) return "";
+      const myAddresses = addrs.map((a) => a.address).join(", ");
+      const activeDomains = domains
+        .filter((d) => d.status !== "failed")
+        .map((d) => `${d.domain} (${d.status})`)
+        .join(", ");
+      return [
+        "Email is one of your core capabilities: you operate a real mailbox and the company's mail domains.",
+        `Your address${addrs.length === 1 ? "" : "es"}: ${myAddresses}. You can send email to anyone and reply to what you receive.`,
+        activeDomains
+          ? `Mail domains you operate: ${activeDomains}. You can attach, verify and detach domains, and create addresses.`
+          : "No mail domain is attached yet; you can attach one (a domain from the connected Cloudflare account).",
+        "You can block abusive senders by a single address or a whole domain.",
+        "API (Authorization: Bearer $PAPERCLIP_API_KEY, base $PAPERCLIP_API_URL/api):",
+        "- inbox/read: GET /agents/$PAPERCLIP_AGENT_ID/email/messages?folder=inbox (also /folders, /threads/<id>, /messages/<id>)",
+        '- send/reply: POST /agents/$PAPERCLIP_AGENT_ID/email/send {"fromAddressId":"<id>","to":["..."],"subject":"...","text":"...","inReplyTo":"<messageId>"}',
+        "- your addresses: GET/POST /agents/$PAPERCLIP_AGENT_ID/email/addresses",
+        "- domains: GET /agents/$PAPERCLIP_AGENT_ID/email/domains (+ /zones), POST .../domains {\"domain\":\"...\"}, POST .../domains/<id>/verify, DELETE .../domains/<id>",
+        '- block a sender: GET/POST /agents/$PAPERCLIP_AGENT_ID/email/blocklist {"kind":"address|domain","value":"..."} (DELETE .../blocklist/<id>)',
+      ].join("\n");
     },
 
     /**

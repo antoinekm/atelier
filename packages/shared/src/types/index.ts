@@ -431,6 +431,7 @@ export type {
   MailThread,
   MailListPage,
   MailFolderCounts,
+  MailSenderBlock,
   MailReverseDnsStatus,
 } from "./mail.js";
 export type {

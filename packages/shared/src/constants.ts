@@ -544,6 +544,10 @@ export type MailMessageStatus = (typeof MAIL_MESSAGE_STATUSES)[number];
 export const MAIL_FOLDERS = ["inbox", "sent", "drafts", "starred", "archive", "trash"] as const;
 export type MailFolder = (typeof MAIL_FOLDERS)[number];
 
+/** A sender block targets a single address or a whole domain (incl. subdomains). */
+export const MAIL_SENDER_BLOCK_KINDS = ["address", "domain"] as const;
+export type MailSenderBlockKind = (typeof MAIL_SENDER_BLOCK_KINDS)[number];
+
 export const APPROVAL_STATUSES = [
   "pending",
   "revision_requested",

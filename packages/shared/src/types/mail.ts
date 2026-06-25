@@ -5,6 +5,7 @@ import type {
   MailFolder,
   MailMessageDirection,
   MailMessageStatus,
+  MailSenderBlockKind,
 } from "../constants.js";
 
 /**
@@ -189,4 +190,16 @@ export interface MailFolderCounts {
   trash: number;
 }
 
-export type { MailFolder };
+/** A blocked sender (address or whole domain) for a company's mailbox. */
+export interface MailSenderBlock {
+  id: string;
+  companyId: string;
+  kind: MailSenderBlockKind;
+  value: string;
+  reason: string | null;
+  createdByAgentId: string | null;
+  createdByUserId: string | null;
+  createdAt: string | Date;
+}
+
+export type { MailFolder, MailSenderBlockKind };

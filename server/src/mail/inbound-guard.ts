@@ -10,6 +10,8 @@
  * Entries match an exact email (contains "@") or a domain (matches the sender's
  * domain and its subdomains).
  */
+import { senderMatchesEntry } from "./sender-match.js";
+
 export interface InboundGuardDecision {
   ok: boolean;
   smtpError?: string;
@@ -24,12 +26,6 @@ function parseList(raw: string | undefined): string[] {
     .filter(Boolean);
 }
 
-function matches(sender: string, entry: string): boolean {
-  const domain = sender.split("@")[1] ?? "";
-  if (entry.includes("@")) return sender === entry;
-  return domain === entry || domain.endsWith(`.${entry}`);
-}
-
 export function createInboundGuard(now: () => number = () => Date.now()) {
   const denylist = parseList(process.env.MAIL_SENDER_DENYLIST);
   const allowlist = parseList(process.env.MAIL_SENDER_ALLOWLIST);
@@ -41,10 +37,10 @@ export function createInboundGuard(now: () => number = () => Date.now()) {
     check(senderRaw: string | undefined): InboundGuardDecision {
       const sender = (senderRaw ?? "").trim().toLowerCase();
 
-      if (denylist.some((e) => matches(sender, e))) {
+      if (denylist.some((e) => senderMatchesEntry(sender, e))) {
         return { ok: false, smtpError: "550 5.7.1 Sender not allowed" };
       }
-      if (allowlist.length > 0 && !allowlist.some((e) => matches(sender, e))) {
+      if (allowlist.length > 0 && !allowlist.some((e) => senderMatchesEntry(sender, e))) {
         return { ok: false, smtpError: "550 5.7.1 Sender not allowed" };
       }
 

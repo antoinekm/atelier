@@ -8621,8 +8621,17 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     // tool/MCP, skill, or plugin via the approvals API. claude_local agents use the
     // REST API (not an MCP tool), so without this they never discover the path.
     context.paperclipCapabilityGuide = renderCapabilityRequestGuide(agent.companyId);
-    // Embedded mail (phase 1): surface unread inbox so the agent notices and can
-    // act on new mail without polling. Empty when the agent has no unread mail.
+    // Embedded mail: a standing capability note (the agent always knows it has a
+    // mailbox + domains and how to use them) plus the reactive unread digest
+    // (untrusted, empty when no unread mail).
+    const mailCapability = await mailMessageService(db)
+      .buildRunMailCapabilityNote(agent.companyId, agent.id)
+      .catch(() => "");
+    if (mailCapability) {
+      context.paperclipMailCapability = mailCapability;
+    } else {
+      delete context.paperclipMailCapability;
+    }
     const emailSummary = await mailMessageService(db)
       .buildRunEmailSummary(agent.companyId, agent.id)
       .catch(() => "");

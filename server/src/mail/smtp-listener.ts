@@ -1,7 +1,7 @@
 import { SMTPServer, type SMTPServerSession } from "smtp-server";
 import { simpleParser, type AddressObject, type ParsedMail } from "mailparser";
 import type { Db } from "@paperclipai/db";
-import { mailAddressService, mailMessageService } from "../services/index.js";
+import { mailAddressService, mailMessageService, mailSenderBlockService } from "../services/index.js";
 import type { StorageService } from "../storage/types.js";
 import { normalizeContentType } from "../attachment-types.js";
 import { createInboundGuard } from "./inbound-guard.js";
@@ -51,6 +51,7 @@ export function startMailListener(db: Db, storage: StorageService): MailListener
   const hostname = process.env.MAIL_HOSTNAME?.trim() || "atelier-mail";
   const addresses = mailAddressService(db);
   const messages = mailMessageService(db);
+  const blocks = mailSenderBlockService(db);
   const guard = createInboundGuard();
 
   const server = new SMTPServer({
@@ -74,9 +75,14 @@ export function startMailListener(db: Db, storage: StorageService): MailListener
       }
       addresses
         .resolveRecipient(address.address)
-        .then((row) => {
+        .then(async (row) => {
           if (!row) {
             callback(new Error("550 5.1.1 Unknown recipient"));
+            return;
+          }
+          // Company-scoped blocklist (managed by the company's agents/board).
+          if (await blocks.isBlocked(row.companyId, sender)) {
+            callback(new Error("550 5.7.1 Sender blocked"));
             return;
           }
           const list = sessionRecipients.get(session) ?? [];

@@ -4,6 +4,7 @@ import type { Db } from "@paperclipai/db";
 import { mailAddressService, mailMessageService } from "../services/index.js";
 import type { StorageService } from "../storage/types.js";
 import { normalizeContentType } from "../attachment-types.js";
+import { createInboundGuard } from "./inbound-guard.js";
 import { logger } from "../middleware/logger.js";
 
 export interface MailListenerHandle {
@@ -50,6 +51,7 @@ export function startMailListener(db: Db, storage: StorageService): MailListener
   const hostname = process.env.MAIL_HOSTNAME?.trim() || "atelier-mail";
   const addresses = mailAddressService(db);
   const messages = mailMessageService(db);
+  const guard = createInboundGuard();
 
   const server = new SMTPServer({
     name: hostname,
@@ -59,6 +61,17 @@ export function startMailListener(db: Db, storage: StorageService): MailListener
     size: 25 * 1024 * 1024,
 
     onRcptTo(address, session, callback) {
+      // Operator allow/deny + per-sender rate limit on the envelope sender, before
+      // we accept the recipient or read the message body.
+      const sender =
+        typeof session.envelope.mailFrom === "object" && session.envelope.mailFrom
+          ? session.envelope.mailFrom.address
+          : undefined;
+      const decision = guard.check(sender);
+      if (!decision.ok) {
+        callback(new Error(decision.smtpError ?? "550 5.7.1 Rejected"));
+        return;
+      }
       addresses
         .resolveRecipient(address.address)
         .then((row) => {
@@ -118,6 +131,7 @@ export function startMailListener(db: Db, storage: StorageService): MailListener
                     body: att.content,
                   });
                   await messages.recordAttachment(rcpt.companyId, message.id, {
+                    agentId: rcpt.agentId,
                     direction: "inbound",
                     provider: stored.provider,
                     objectKey: stored.objectKey,

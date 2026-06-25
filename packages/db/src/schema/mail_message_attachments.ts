@@ -1,5 +1,6 @@
 import { pgTable, uuid, text, integer, boolean, timestamp, index } from "drizzle-orm/pg-core";
 import { companies } from "./companies.js";
+import { agents } from "./agents.js";
 import { mailMessages } from "./mail_messages.js";
 
 /**
@@ -18,6 +19,10 @@ export const mailMessageAttachments = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     companyId: uuid("company_id").notNull().references(() => companies.id),
     mailMessageId: uuid("mail_message_id").references(() => mailMessages.id, { onDelete: "cascade" }),
+    // Owning agent (the mailbox the attachment belongs to). Set for staged
+    // outbound uploads too, so the download route can enforce per-agent access
+    // before the attachment is linked to a message.
+    agentId: uuid("agent_id").references(() => agents.id, { onDelete: "set null" }),
     direction: text("direction").notNull(),
     provider: text("provider").notNull(),
     objectKey: text("object_key").notNull(),
@@ -33,5 +38,6 @@ export const mailMessageAttachments = pgTable(
   (table) => ({
     messageIdx: index("mail_message_attachments_message_idx").on(table.mailMessageId),
     companyIdx: index("mail_message_attachments_company_idx").on(table.companyId),
+    agentIdx: index("mail_message_attachments_agent_idx").on(table.agentId),
   }),
 );

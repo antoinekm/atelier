@@ -10,7 +10,13 @@ import {
   sendEmailSchema,
 } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
-import { agentService, mailAddressService, mailMessageService, logActivity } from "../services/index.js";
+import {
+  agentService,
+  mailAddressService,
+  mailMessageService,
+  mailOutboundGuard,
+  logActivity,
+} from "../services/index.js";
 import { forbidden, notFound, unprocessable } from "../errors.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import type { MailAddressActor } from "../services/mail-addresses.js";
@@ -54,6 +60,7 @@ export function agentEmailRoutes(db: Db, storage: StorageService) {
   const agents = agentService(db);
   const addresses = mailAddressService(db);
   const messages = mailMessageService(db);
+  const outboundGuard = mailOutboundGuard(db);
 
   const attachmentUpload = multer({
     storage: multer.memoryStorage(),
@@ -250,6 +257,7 @@ export function agentEmailRoutes(db: Db, storage: StorageService) {
       body: file.buffer,
     });
     const attachment = await messages.recordAttachment(companyId, null, {
+      agentId,
       direction: "outbound",
       provider: stored.provider,
       objectKey: stored.objectKey,
@@ -269,10 +277,14 @@ export function agentEmailRoutes(db: Db, storage: StorageService) {
     const id = req.params.id as string;
     const { companyId } = await resolveContext(req, agentId);
     const attachment = await messages.getAttachmentById(companyId, id);
-    // If the attachment belongs to a message, make sure that message is the agent's.
+    // Enforce per-agent ownership. Linked attachments are checked via their
+    // message; staged (unlinked) attachments are checked via their owner agent,
+    // so one agent cannot read another agent's draft attachments in the company.
     if (attachment.mailMessageId) {
       const message = await messages.getById(companyId, attachment.mailMessageId);
       if (message.agentId !== agentId) throw forbidden("This attachment does not belong to the agent");
+    } else if (attachment.agentId !== agentId) {
+      throw forbidden("This attachment does not belong to the agent");
     }
 
     const contentLength = attachment.byteSize;
@@ -318,6 +330,7 @@ export function agentEmailRoutes(db: Db, storage: StorageService) {
     const from = await addresses.getById(companyId, req.body.fromAddressId);
     if (from.agentId !== agentId) throw forbidden("That address does not belong to the agent");
     if (from.status !== "active") throw unprocessable("That address is not active");
+    await outboundGuard.assertNoSecretLeak(companyId, [req.body.subject, req.body.text, req.body.html]);
     const queued = await messages.enqueueOutbound(companyId, {
       addressId: from.id,
       agentId,
@@ -417,6 +430,7 @@ export function agentEmailRoutes(db: Db, storage: StorageService) {
     const { companyId } = await resolveContext(req, agentId);
     const existing = await messages.getById(companyId, id);
     if (existing.agentId !== agentId) throw forbidden("This draft does not belong to the agent");
+    await outboundGuard.assertNoSecretLeak(companyId, [existing.subject, existing.textBody, existing.htmlBody]);
     const queued = await messages.sendDraft(companyId, id);
     await logActivity(db, {
       companyId,

@@ -13,4 +13,10 @@ describe("renderCapabilityRequestGuide (issue #2)", () => {
     // secrets-by-name discipline is surfaced
     expect(guide).toContain("secretName");
   });
+
+  it("tells the agent it fully owns its domains and must not escalate domain/business decisions", () => {
+    const guide = renderCapabilityRequestGuide("company-123");
+    expect(guide).toContain("FULLY OWN");
+    expect(guide).toMatch(/NEVER escalate a domain/i);
+  });
 });

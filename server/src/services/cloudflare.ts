@@ -20,6 +20,48 @@ export interface CloudflareDnsRecord {
   priority?: number;
 }
 
+/** A DNS record as returned by Cloudflare, projected for the agent DNS API. */
+export interface CloudflareDnsRecordEntry {
+  id: string;
+  type: string;
+  name: string;
+  content: string;
+  ttl: number;
+  proxied: boolean;
+  priority: number | null;
+}
+
+export interface CreateDnsRecordInput {
+  type: "A" | "AAAA" | "CNAME" | "TXT" | "MX";
+  name: string;
+  content: string;
+  ttl?: number;
+  proxied?: boolean;
+  priority?: number;
+}
+
+/**
+ * Whether a record is one the mail system manages on an attached domain
+ * (MX at the apex, the DKIM/SPF/DMARC TXT records). These are protected from the
+ * generic agent DNS API so an agent cannot accidentally break its own mail while
+ * editing records; removing them is done via domain detach.
+ */
+export function isMailManagedDnsRecord(
+  record: { type: string; name: string; content: string },
+  domain: { domain: string; dkimSelector: string },
+): boolean {
+  const name = record.name.replace(/\.$/, "").toLowerCase();
+  const apex = domain.domain.replace(/\.$/, "").toLowerCase();
+  const type = record.type.toUpperCase();
+  if (type === "MX" && name === apex) return true;
+  if (type === "TXT") {
+    if (name === `${domain.dkimSelector.toLowerCase()}._domainkey.${apex}`) return true;
+    if (name === `_dmarc.${apex}`) return true;
+    if (name === apex && /v=spf1/i.test(record.content)) return true;
+  }
+  return false;
+}
+
 type ConnectionRow = typeof cloudflareConnections.$inferSelect;
 
 function toConnection(row: ConnectionRow): CloudflareConnection {
@@ -237,6 +279,99 @@ export function cloudflareService(db: Db) {
       } else {
         await cfFetch(token, `/zones/${zoneId}/dns_records`, { method: "POST", body });
       }
+    },
+
+    /** List all DNS records in a zone (paginated), for the agent DNS API. */
+    listDnsRecords: async (companyId: string, zoneId: string): Promise<CloudflareDnsRecordEntry[]> => {
+      const token = await getToken(companyId);
+      const perPage = 100;
+      const out: CloudflareDnsRecordEntry[] = [];
+      for (let page = 1; page <= 20; page++) {
+        const recs = await cfFetch<
+          Array<{ id: string; type: string; name: string; content: string; ttl: number; proxied?: boolean; priority?: number }>
+        >(token, `/zones/${zoneId}/dns_records`, { query: { per_page: String(perPage), page: String(page) } });
+        out.push(
+          ...recs.map((r) => ({
+            id: r.id,
+            type: r.type,
+            name: r.name,
+            content: r.content,
+            ttl: r.ttl,
+            proxied: Boolean(r.proxied),
+            priority: r.priority ?? null,
+          })),
+        );
+        if (recs.length < perPage) break;
+      }
+      return out;
+    },
+
+    /** Fetch a single DNS record by id (used to authorize/guard a delete). */
+    getDnsRecordById: async (
+      companyId: string,
+      zoneId: string,
+      recordId: string,
+    ): Promise<CloudflareDnsRecordEntry> => {
+      const token = await getToken(companyId);
+      const r = await cfFetch<{
+        id: string;
+        type: string;
+        name: string;
+        content: string;
+        ttl: number;
+        proxied?: boolean;
+        priority?: number;
+      }>(token, `/zones/${zoneId}/dns_records/${recordId}`);
+      return {
+        id: r.id,
+        type: r.type,
+        name: r.name,
+        content: r.content,
+        ttl: r.ttl,
+        proxied: Boolean(r.proxied),
+        priority: r.priority ?? null,
+      };
+    },
+
+    /** Create a new DNS record (the agent DNS API; allows duplicates per Cloudflare). */
+    createDnsRecord: async (
+      companyId: string,
+      zoneId: string,
+      input: CreateDnsRecordInput,
+    ): Promise<CloudflareDnsRecordEntry> => {
+      const token = await getToken(companyId);
+      const body: Record<string, unknown> = {
+        type: input.type,
+        name: input.name,
+        content: input.content,
+        ttl: input.ttl ?? 1,
+      };
+      if (input.proxied !== undefined) body.proxied = input.proxied;
+      if (input.priority !== undefined) body.priority = input.priority;
+      const r = await cfFetch<{
+        id: string;
+        type: string;
+        name: string;
+        content: string;
+        ttl: number;
+        proxied?: boolean;
+        priority?: number;
+      }>(token, `/zones/${zoneId}/dns_records`, { method: "POST", body });
+      return {
+        id: r.id,
+        type: r.type,
+        name: r.name,
+        content: r.content,
+        ttl: r.ttl,
+        proxied: Boolean(r.proxied),
+        priority: r.priority ?? null,
+      };
+    },
+
+    /** Delete a single DNS record by id (the agent DNS API). */
+    deleteDnsRecordById: async (companyId: string, zoneId: string, recordId: string): Promise<void> => {
+      const token = await getToken(companyId);
+      await cfFetch(token, `/zones/${zoneId}/dns_records/${recordId}`, { method: "DELETE" });
     },
 
     /**

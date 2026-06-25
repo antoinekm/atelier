@@ -432,6 +432,7 @@ export type {
   MailListPage,
   MailFolderCounts,
   MailSenderBlock,
+  CloudflareDnsRecord,
   MailReverseDnsStatus,
 } from "./mail.js";
 export type {

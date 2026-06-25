@@ -347,6 +347,9 @@ export function CompanySettingsMail() {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
+          {blocklistQuery.isError && (
+            <div className="text-sm text-destructive">Failed to load blocked senders.</div>
+          )}
           {(blocklistQuery.data ?? []).length > 0 && (
             <div className="overflow-hidden rounded-md border">
               {(blocklistQuery.data ?? []).map((block) => (

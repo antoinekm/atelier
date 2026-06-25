@@ -192,6 +192,14 @@ export function mailDomainRoutes(db: Db) {
     assertCompanyAccess(req, companyId);
     assertBoard(req);
     await blockSvc.remove(companyId, id);
+    await logActivity(db, {
+      companyId,
+      actorType: getActorInfo(req).actorType,
+      actorId: getActorInfo(req).actorId,
+      action: "mail_sender_unblocked",
+      entityType: "mail_sender_block",
+      entityId: id,
+    });
     res.status(204).end();
   });
 

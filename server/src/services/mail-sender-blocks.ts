@@ -88,7 +88,9 @@ export function mailSenderBlockService(db: Db) {
               eq(mailSenderBlocks.value, value),
             ),
           )
-          .then((rows) => rows[0]);
+          .then((rows) => rows[0] ?? null);
+        // Lost a race with a concurrent remove between the conflict and this read.
+        if (!existing) throw notFound("Block not found");
         return toMailSenderBlock(existing);
       }
       return toMailSenderBlock(row);

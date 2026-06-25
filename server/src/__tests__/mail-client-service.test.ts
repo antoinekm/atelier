@@ -213,6 +213,7 @@ describeEmbeddedPostgres("mail client (folders, threading, flags, drafts, attach
     const { companyId, agentId, addr } = await seed();
     // Stage an attachment (no message yet).
     const staged = await messages.recordAttachment(companyId, null, {
+      agentId,
       direction: "outbound",
       provider: "local_disk",
       objectKey: "mail/x/1-file.txt",

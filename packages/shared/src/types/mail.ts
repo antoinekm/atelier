@@ -190,6 +190,17 @@ export interface MailFolderCounts {
   trash: number;
 }
 
+/** A DNS record on an agent's domain (projected from Cloudflare). */
+export interface CloudflareDnsRecord {
+  id: string;
+  type: string;
+  name: string;
+  content: string;
+  ttl: number;
+  proxied: boolean;
+  priority: number | null;
+}
+
 /** A blocked sender (address or whole domain) for a company's mailbox. */
 export interface MailSenderBlock {
   id: string;

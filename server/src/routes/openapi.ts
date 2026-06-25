@@ -139,6 +139,7 @@ import {
   attachDomainSchema,
   createMailAddressSchema,
   createSenderBlockSchema,
+  createDnsRecordSchema,
   sendEmailSchema,
   draftSchema,
   mailFlagSchema,
@@ -4915,6 +4916,27 @@ registerCurrentRoute({
   path: "/api/agents/{agentId}/email/domains/{id}",
   tags: ["agents"],
   summary: "Detach a mail domain",
+  responses: { 204: r.noContent, 401: r.unauthorized, 404: r.notFound },
+});
+registerCurrentRoute({
+  method: "get",
+  path: "/api/agents/{agentId}/email/domains/{id}/dns",
+  tags: ["agents"],
+  summary: "List a domain's DNS records",
+});
+registerCurrentRoute({
+  method: "post",
+  path: "/api/agents/{agentId}/email/domains/{id}/dns",
+  tags: ["agents"],
+  summary: "Create a DNS record (e.g. a subdomain CNAME)",
+  body: createDnsRecordSchema,
+  responses: { 201: r.ok(), 400: r.badRequest, 401: r.unauthorized, 404: r.notFound },
+});
+registerCurrentRoute({
+  method: "delete",
+  path: "/api/agents/{agentId}/email/domains/{id}/dns/{recordId}",
+  tags: ["agents"],
+  summary: "Delete a DNS record",
   responses: { 204: r.noContent, 401: r.unauthorized, 404: r.notFound },
 });
 registerCurrentRoute({

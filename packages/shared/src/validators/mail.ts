@@ -131,6 +131,18 @@ export const createSenderBlockSchema = z
   });
 export type CreateSenderBlock = z.infer<typeof createSenderBlockSchema>;
 
+/** Create a DNS record on one of the agent's domains (generic DNS management). */
+export const createDnsRecordSchema = z.object({
+  type: z.enum(["A", "AAAA", "CNAME", "TXT", "MX"]),
+  // A subdomain label ("tools"), "@" for the apex, or a full name ("tools.example.com").
+  name: z.string().trim().min(1).max(253),
+  content: z.string().trim().min(1).max(2048),
+  ttl: z.number().int().min(60).max(86_400).optional(),
+  proxied: z.boolean().optional(),
+  priority: z.number().int().min(0).max(65_535).optional(),
+});
+export type CreateDnsRecord = z.infer<typeof createDnsRecordSchema>;
+
 /** Inbox listing query (agent run-context API; kept stable for back-compat). */
 export const mailInboxQuerySchema = z.object({
   since: z.string().datetime().optional(),

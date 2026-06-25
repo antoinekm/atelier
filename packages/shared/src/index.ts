@@ -839,6 +839,7 @@ export type {
   MailListPage,
   MailFolderCounts,
   MailSenderBlock,
+  CloudflareDnsRecord,
   MailReverseDnsStatus,
 } from "./types/index.js";
 export { COMPANY_SEARCH_SCOPES } from "./types/index.js";
@@ -985,6 +986,7 @@ export {
   mailFlagSchema,
   mailListQuerySchema,
   createSenderBlockSchema,
+  createDnsRecordSchema,
   mailInboxQuerySchema,
   type ConnectCloudflare,
   type AttachDomain,
@@ -994,6 +996,7 @@ export {
   type MailFlagInput,
   type MailListQuery,
   type CreateSenderBlock,
+  type CreateDnsRecord,
   type MailInboxQuery,
 } from "./validators/index.js";
 

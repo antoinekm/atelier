@@ -3,6 +3,7 @@ import multer from "multer";
 import type { Db } from "@paperclipai/db";
 import {
   attachDomainSchema,
+  createDnsRecordSchema,
   createMailAddressSchema,
   createSenderBlockSchema,
   draftSchema,
@@ -14,6 +15,7 @@ import {
 import { validate } from "../middleware/validate.js";
 import {
   agentService,
+  cloudflareService,
   mailAddressService,
   mailDomainService,
   mailMessageService,
@@ -21,6 +23,7 @@ import {
   mailSenderBlockService,
   logActivity,
 } from "../services/index.js";
+import { isMailManagedDnsRecord } from "../services/cloudflare.js";
 import { forbidden, notFound, unprocessable } from "../errors.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import type { MailAddressActor } from "../services/mail-addresses.js";
@@ -66,6 +69,7 @@ export function agentEmailRoutes(db: Db, storage: StorageService) {
   const messages = mailMessageService(db);
   const domains = mailDomainService(db);
   const blocks = mailSenderBlockService(db);
+  const cloudflare = cloudflareService(db);
   const outboundGuard = mailOutboundGuard(db);
 
   const attachmentUpload = multer({
@@ -523,6 +527,79 @@ export function agentEmailRoutes(db: Db, storage: StorageService) {
       entityId: id,
       agentId,
       details: { domain: domain.domain },
+    });
+    res.status(204).end();
+  });
+
+  // ─── DNS records (generic record CRUD on the agent's domains) ──────────────
+
+  /** Resolve a domain the agent operates to its Cloudflare zone id. */
+  async function resolveZone(companyId: string, domainId: string) {
+    const domain = await domains.get(companyId, domainId);
+    if (!domain.cfZoneId) throw unprocessable("This domain has no Cloudflare zone");
+    return domain;
+  }
+
+  /** Normalize a record name to a FQDN within the domain ("@"/label/full name). */
+  function normalizeRecordName(name: string, domain: string): string {
+    const n = name.trim().replace(/\.$/, "").toLowerCase();
+    const apex = domain.toLowerCase();
+    if (n === "@" || n === "" || n === apex) return apex;
+    return n.endsWith(`.${apex}`) ? n : `${n}.${apex}`;
+  }
+
+  router.get("/agents/:agentId/email/domains/:id/dns", async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const id = req.params.id as string;
+    const { companyId } = await resolveContext(req, agentId);
+    const domain = await resolveZone(companyId, id);
+    res.json(await cloudflare.listDnsRecords(companyId, domain.cfZoneId!));
+  });
+
+  router.post("/agents/:agentId/email/domains/:id/dns", validate(createDnsRecordSchema), async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const id = req.params.id as string;
+    const { companyId, actor } = await resolveContext(req, agentId);
+    const domain = await resolveZone(companyId, id);
+    const name = normalizeRecordName(req.body.name, domain.domain);
+    // Do not let the generic API shadow the mail records (MX/DKIM/SPF/DMARC).
+    if (isMailManagedDnsRecord({ type: req.body.type, name, content: req.body.content }, domain)) {
+      throw unprocessable("That record is managed by the mail system; it cannot be set via the DNS API");
+    }
+    const record = await cloudflare.createDnsRecord(companyId, domain.cfZoneId!, { ...req.body, name });
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      action: "mail_dns_record_created",
+      entityType: "mail_domain",
+      entityId: id,
+      agentId,
+      details: { type: record.type, name: record.name, content: record.content },
+    });
+    res.status(201).json(record);
+  });
+
+  router.delete("/agents/:agentId/email/domains/:id/dns/:recordId", async (req, res) => {
+    const agentId = req.params.agentId as string;
+    const id = req.params.id as string;
+    const recordId = req.params.recordId as string;
+    const { companyId, actor } = await resolveContext(req, agentId);
+    const domain = await resolveZone(companyId, id);
+    const record = await cloudflare.getDnsRecordById(companyId, domain.cfZoneId!, recordId);
+    if (isMailManagedDnsRecord(record, domain)) {
+      throw unprocessable("That record is managed by the mail system; detach the domain to remove mail records");
+    }
+    await cloudflare.deleteDnsRecordById(companyId, domain.cfZoneId!, recordId);
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      action: "mail_dns_record_deleted",
+      entityType: "mail_domain",
+      entityId: id,
+      agentId,
+      details: { type: record.type, name: record.name },
     });
     res.status(204).end();
   });

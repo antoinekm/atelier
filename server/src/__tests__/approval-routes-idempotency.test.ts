@@ -403,7 +403,10 @@ describe("approval routes idempotent retries", () => {
     expect(mockApprovalService.create).not.toHaveBeenCalled();
   });
 
-  it("accepts a well-formed request_credential payload", async () => {
+  it("accepts a well-formed request_credential payload from the company lead", async () => {
+    // The lead (no manager) may request; no duplicate pending request exists.
+    mockAgentService.getById.mockResolvedValue({ id: "agent-1", reportsTo: null });
+    mockApprovalService.list.mockResolvedValue([]);
     mockApprovalService.create.mockResolvedValue({
       id: "approval-cred-1",
       companyId: "company-1",
@@ -433,6 +436,45 @@ describe("approval routes idempotent retries", () => {
 
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(mockApprovalService.create).toHaveBeenCalled();
+  });
+
+  it("blocks a reporting agent from requesting a credential (must route via CEO)", async () => {
+    mockAgentService.getById.mockResolvedValue({ id: "agent-1", reportsTo: "ceo-1" });
+    mockApprovalService.list.mockResolvedValue([]);
+
+    const res = await request(await createAgentApp())
+      .post("/api/companies/company-1/approvals")
+      .send({
+        type: "request_credential",
+        payload: { envKey: "GITHUB_TOKEN", service: "github", reason: "Open the PR" },
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(res.body.error).toMatch(/company lead \(CEO\)/i);
+    expect(mockApprovalService.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a duplicate pending credential request for the same envKey", async () => {
+    mockAgentService.getById.mockResolvedValue({ id: "agent-1", reportsTo: null });
+    mockApprovalService.list.mockResolvedValue([
+      {
+        id: "existing-cred",
+        type: "request_credential",
+        status: "pending",
+        payload: { envKey: "GITHUB_TOKEN" },
+      },
+    ]);
+
+    const res = await request(await createAgentApp())
+      .post("/api/companies/company-1/approvals")
+      .send({
+        type: "request_credential",
+        payload: { envKey: "GITHUB_TOKEN", service: "github", reason: "Open the PR" },
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatch(/already exists/i);
+    expect(mockApprovalService.create).not.toHaveBeenCalled();
   });
 
   it("rejects malformed request_credential payloads on resubmit", async () => {

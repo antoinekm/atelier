@@ -8620,7 +8620,9 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     // Capability-request guide (issue #2): always tell the agent it can request a
     // tool/MCP, skill, or plugin via the approvals API. claude_local agents use the
     // REST API (not an MCP tool), so without this they never discover the path.
-    context.paperclipCapabilityGuide = renderCapabilityRequestGuide(agent.companyId);
+    context.paperclipCapabilityGuide = renderCapabilityRequestGuide(agent.companyId, {
+      isLead: agent.reportsTo == null,
+    });
     // Embedded mail: a standing capability note (the agent always knows it has a
     // mailbox + domains and how to use them) plus the reactive unread digest
     // (untrusted, empty when no unread mail).

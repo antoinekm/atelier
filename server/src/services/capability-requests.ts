@@ -5,7 +5,11 @@
  * endpoint and bakes in the agent's companyId. Mirrors the long-term-memory
  * write guide: without it the request path exists but agents never discover it.
  */
-export function renderCapabilityRequestGuide(companyId: string): string {
+export function renderCapabilityRequestGuide(
+  companyId: string,
+  opts: { isLead?: boolean } = {},
+): string {
+  const { isLead } = opts;
   return [
     "Operating posture (authoritative, overrides any softer guidance): act autonomously by default. You run in a full sandbox with a Bash shell, network access, writable space, and skip-permissions. Do the work yourself instead of asking the human board to do it for you:",
     "- Provision your own tooling/dependencies in your sandbox: download packages, stage libraries locally when system installs are blocked (e.g. `apt-get download` + `dpkg-deb -x` into a local prefix, then set `LD_LIBRARY_PATH`), write and run scripts, drive a browser from a Node script. If something fails, debug and work around it yourself before escalating.",
@@ -21,6 +25,9 @@ export function renderCapabilityRequestGuide(companyId: string): string {
     '- Skill (a how-to from the catalog): {"type":"request_skill_install","payload":{"catalogSkillId":"<id>","reason":"<why>"}}',
     '- Plugin (server-side, instance-wide; an instance admin must approve): {"type":"request_plugin_install","payload":{"packageName":"<pkg>","version":"<optional>","reason":"<why>"}}',
     '- Credential / account access you cannot self-provision (e.g. a Stripe key, a paid account): {"type":"request_credential","payload":{"envKey":"STRIPE_SECRET_KEY","service":"stripe","scope":"<optional>","reason":"<why>","howToObtain":"<exact steps + direct links so the human does not have to search>","browserAgentPrompt":"<a self-contained prompt the board can paste into a browser agent like Claude for Chrome to perform the acquisition and return the value>"}}. ALWAYS fill howToObtain with precise, copy-pasteable steps and direct URLs (e.g. the exact dashboard page to create the key and which scopes to enable), and fill browserAgentPrompt with a complete instruction a browser-driving agent can execute end to end (where to go, exactly what to create/configure with which scopes, and to report back the resulting value). The board provides the value; on approval it is injected into your run environment as $envKey (read it from your shell), never returned in plaintext.',
+    isLead === false
+      ? "Credentials are owned by your company lead (CEO). Do NOT request a credential from the board yourself; ask your CEO to request and provision it for the company. The control plane blocks request_credential from reporting agents."
+      : "You own credential acquisition for your company. Before opening a request_credential, check your existing secrets and any pending credential requests and reuse them; never open a duplicate for an env key that already has a pending request (the control plane allows only one pending request per env key).",
     "Declare any secret by NAME only (never paste secret values); the board supplies them. Prefer http-transport MCP servers (no local browser/binary to install in your sandbox).",
   ].join("\n");
 }

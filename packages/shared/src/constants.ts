@@ -498,6 +498,7 @@ export const APPROVAL_TYPES = [
   "request_skill_install",
   "request_plugin_install",
   "request_credential",
+  "request_secret_grant",
 ] as const;
 export type ApprovalType = (typeof APPROVAL_TYPES)[number];
 

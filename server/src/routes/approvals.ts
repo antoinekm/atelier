@@ -9,6 +9,7 @@ import {
   requestSkillInstallSchema,
   requestPluginInstallSchema,
   requestCredentialSchema,
+  requestSecretGrantSchema,
   provideCredentialSchema,
   resolveApprovalSchema,
   resubmitApprovalSchema,
@@ -189,6 +190,58 @@ export function approvalRoutes(
       if (duplicate) {
         res.status(409).json({
           error: `A pending credential request for ${credPayload.envKey} already exists (${duplicate.id}). Resolve or resubmit it instead of creating a duplicate.`,
+        });
+        return;
+      }
+    }
+
+    // request_secret_grant: the company lead shares an existing company secret with one of
+    // its sub-agents. Validated and gated here; the secret is bound to the target on board
+    // approval (see the approve handler). The lead can later revoke it directly.
+    if (approvalInput.type === "request_secret_grant") {
+      const grant = requestSecretGrantSchema.parse(approvalInput.payload);
+
+      // Only the lead may grant (same authority rule as request_credential). Use the
+      // authenticated agent, never the body-controlled requestedByAgentId.
+      if (req.actor.type === "agent" && req.actor.agentId) {
+        const requestingAgent = await agentsSvc.getById(req.actor.agentId);
+        if (requestingAgent?.reportsTo) {
+          res.status(403).json({
+            error:
+              "Sharing a company secret with a sub-agent is the company lead's job. Ask your manager (CEO) to grant it.",
+          });
+          return;
+        }
+      }
+
+      // Target must be a real agent in this company, and not the requester itself.
+      const targetAgent = await agentsSvc.getById(grant.targetAgentId);
+      if (!targetAgent || targetAgent.companyId !== companyId) {
+        res.status(422).json({ error: "Target agent not found in this company." });
+        return;
+      }
+      if (req.actor.type === "agent" && targetAgent.id === req.actor.agentId) {
+        res.status(422).json({ error: "Cannot grant a secret to yourself; pick a sub-agent." });
+        return;
+      }
+
+      // The secret must already exist in the company (the lead shares what it holds).
+      const secret = await secretsSvc.getByName(companyId, grant.secretName);
+      if (!secret) {
+        res.status(422).json({ error: `No company secret named ${grant.secretName}.` });
+        return;
+      }
+
+      // Dedup: one pending grant per (target agent, env key).
+      const pendingGrants = await svc.list(companyId, "pending");
+      const dupGrant = pendingGrants.find((a) => {
+        if (a.type !== "request_secret_grant") return false;
+        const p = a.payload as { targetAgentId?: string; envKey?: string } | null;
+        return p?.targetAgentId === grant.targetAgentId && p?.envKey === grant.envKey;
+      });
+      if (dupGrant) {
+        res.status(409).json({
+          error: `A pending grant of ${grant.envKey} to that agent already exists (${dupGrant.id}).`,
         });
         return;
       }
@@ -386,6 +439,72 @@ export function approvalRoutes(
             actorType: "user",
             actorId: req.actor.userId ?? "board",
             action: "plugin.install_via_approval_failed",
+            entityType: "approval",
+            entityId: approval.id,
+            details: { error: err instanceof Error ? err.message : String(err) },
+          });
+        }
+      }
+
+      // Secret grant (lead shares an existing company secret with a sub-agent): on
+      // approval, bind the secret into the target agent's run env as a secret_ref (the
+      // value is never exposed). agentsSvc.update syncs company_secret_bindings.
+      if (approval.type === "request_secret_grant") {
+        try {
+          const grant = requestSecretGrantSchema.parse(approval.payload);
+          const secret = await secretsSvc.getByName(approval.companyId, grant.secretName);
+          if (!secret) throw new Error(`Company secret ${grant.secretName} not found`);
+          const targetAgent = await agentsSvc.getById(grant.targetAgentId);
+          if (!targetAgent || targetAgent.companyId !== approval.companyId) {
+            throw new Error("Target agent not found in this company");
+          }
+          const adapterConfig =
+            typeof targetAgent.adapterConfig === "object" && targetAgent.adapterConfig !== null
+              ? { ...(targetAgent.adapterConfig as Record<string, unknown>) }
+              : {};
+          const env =
+            typeof adapterConfig.env === "object" && adapterConfig.env !== null
+              ? { ...(adapterConfig.env as Record<string, unknown>) }
+              : {};
+          env[grant.envKey] = { type: "secret_ref", secretId: secret.id, version: "latest" };
+          adapterConfig.env = env;
+          await agentsSvc.update(grant.targetAgentId, { adapterConfig });
+          await logActivity(db, {
+            companyId: approval.companyId,
+            actorType: "user",
+            actorId: req.actor.userId ?? "board",
+            action: "agent_secret_granted",
+            entityType: "agent",
+            entityId: grant.targetAgentId,
+            agentId: grant.targetAgentId,
+            details: {
+              envKey: grant.envKey,
+              secretName: grant.secretName,
+              grantedByAgentId: approval.requestedByAgentId,
+              approvalId: approval.id,
+            },
+          });
+          // Wake the target sub-agent so it can use the newly granted access.
+          await heartbeat.wakeup(grant.targetAgentId, {
+            source: "automation",
+            triggerDetail: "system",
+            reason: "secret_granted",
+            requestedByActorType: "user",
+            requestedByActorId: req.actor.userId ?? "board",
+            contextSnapshot: {
+              source: "approval.approved",
+              approvalId: approval.id,
+              wakeReason: "secret_granted",
+              envKey: grant.envKey,
+            },
+          });
+        } catch (err) {
+          logger.warn({ err, approvalId: approval.id }, "failed to bind secret grant from approval");
+          await logActivity(db, {
+            companyId: approval.companyId,
+            actorType: "user",
+            actorId: req.actor.userId ?? "board",
+            action: "agent_secret_grant_failed",
             entityType: "approval",
             entityId: approval.id,
             details: { error: err instanceof Error ? err.message : String(err) },

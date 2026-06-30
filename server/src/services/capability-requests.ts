@@ -28,6 +28,11 @@ export function renderCapabilityRequestGuide(
     isLead === false
       ? "Credentials are owned by your company lead (CEO). Do NOT request a credential from the board yourself; ask your CEO to request and provision it for the company. The control plane blocks request_credential from reporting agents."
       : "You own credential acquisition for your company. Before opening a request_credential, check your existing secrets and any pending credential requests and reuse them; never open a duplicate for an env key that already has a pending request (the control plane allows only one pending request per env key).",
+    isLead === false
+      ? "If you need a credential for your work, ask your CEO; the CEO holds and shares company secrets."
+      : 'Sharing secrets with your sub-agents: to give a sub-agent access to a company secret you already hold, open a `request_secret_grant` approval: POST $PAPERCLIP_API_URL/api/companies/' +
+        companyId +
+        '/approvals with {"type":"request_secret_grant","payload":{"secretName":"<existing secret>","targetAgentId":"<sub-agent id>","envKey":"THE_ENV_VAR","reason":"<why>"}}. A human approves and the secret is bound into that agent\'s run env as $envKey (the value is never exposed). Revoke any time, no approval needed: DELETE $PAPERCLIP_API_URL/api/agents/<targetAgentId>/granted-secrets/<envKey>.',
     "Declare any secret by NAME only (never paste secret values); the board supplies them. Prefer http-transport MCP servers (no local browser/binary to install in your sandbox).",
   ].join("\n");
 }

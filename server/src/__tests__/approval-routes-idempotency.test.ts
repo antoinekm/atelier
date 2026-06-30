@@ -431,8 +431,27 @@ describe("approval routes idempotent retries", () => {
         },
       });
 
-    expect([200, 201], JSON.stringify(res.body)).toContain(res.status);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(mockApprovalService.create).toHaveBeenCalled();
+  });
+
+  it("rejects malformed request_credential payloads on resubmit", async () => {
+    mockApprovalService.getById.mockResolvedValue({
+      id: "approval-cred-2",
+      companyId: "company-1",
+      type: "request_credential",
+      status: "revision_requested",
+      payload: { envKey: "GITHUB_TOKEN", service: "github", reason: "Open the PR" },
+      requestedByAgentId: "agent-1",
+    });
+
+    const res = await request(await createAgentApp())
+      .post("/api/approvals/approval-cred-2/resubmit")
+      .send({ payload: { key: "GITHUB_TOKEN", note: "still wrong" } });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(400);
+    expect(res.body.error).toBe("Validation error");
+    expect(mockApprovalService.resubmit).not.toHaveBeenCalled();
   });
 
   it("blocks status-only recovery runs from creating approvals", async () => {

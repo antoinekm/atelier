@@ -153,6 +153,17 @@ export function approvalRoutes(
       : [];
     const uniqueIssueIds = Array.from(new Set(issueIds));
     const { issueIds: _issueIds, ...approvalInput } = req.body;
+
+    // Per-type payload validation at creation. createApprovalSchema only checks that
+    // `payload` is an object, so without this an agent can persist a malformed
+    // request_credential (e.g. `key` instead of `envKey`, no reason/howToObtain). Such a
+    // request renders degraded in the board UI and cannot be completed, because
+    // provide-credential re-parses the payload and would throw. Reject it up front with a
+    // clear validation error the requesting agent can read and self-correct.
+    if (approvalInput.type === "request_credential") {
+      requestCredentialSchema.parse(approvalInput.payload);
+    }
+
     const normalizedPayload =
       approvalInput.type === "hire_agent"
         ? await secretsSvc.normalizeHireApprovalPayloadForPersistence(

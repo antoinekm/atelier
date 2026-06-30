@@ -382,6 +382,59 @@ describe("approval routes idempotent retries", () => {
     );
   });
 
+  it("rejects malformed request_credential payloads at creation", async () => {
+    // Mirrors a real agent request that ignored the schema: `key` instead of `envKey`,
+    // free-form `note`/`purpose` instead of `reason`, and no howToObtain. Without
+    // creation-time validation this persists and cannot be completed later.
+    const res = await request(await createAgentApp())
+      .post("/api/companies/company-1/approvals")
+      .send({
+        type: "request_credential",
+        payload: {
+          key: "GITHUB_TOKEN",
+          name: "GitHub auth for UNIA-5 PR",
+          note: "Needed to open the PR.",
+          purpose: "Publish the CONTRIBUTING.md PR",
+        },
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(400);
+    expect(res.body.error).toBe("Validation error");
+    expect(mockApprovalService.create).not.toHaveBeenCalled();
+  });
+
+  it("accepts a well-formed request_credential payload", async () => {
+    mockApprovalService.create.mockResolvedValue({
+      id: "approval-cred-1",
+      companyId: "company-1",
+      type: "request_credential",
+      requestedByAgentId: "agent-1",
+      requestedByUserId: null,
+      status: "pending",
+      payload: { envKey: "GITHUB_TOKEN", service: "github", reason: "Open the PR" },
+      decisionNote: null,
+      decidedByUserId: null,
+      decidedAt: null,
+      createdAt: new Date("2026-04-06T00:00:00.000Z"),
+      updatedAt: new Date("2026-04-06T00:00:00.000Z"),
+    });
+
+    const res = await request(await createAgentApp())
+      .post("/api/companies/company-1/approvals")
+      .send({
+        type: "request_credential",
+        payload: {
+          envKey: "GITHUB_TOKEN",
+          service: "github",
+          reason: "Open the CONTRIBUTING.md PR from branch unia-5-contributing",
+          howToObtain: "Create a fine-grained PAT at https://github.com/settings/tokens",
+        },
+      });
+
+    expect([200, 201], JSON.stringify(res.body)).toContain(res.status);
+    expect(mockApprovalService.create).toHaveBeenCalled();
+  });
+
   it("blocks status-only recovery runs from creating approvals", async () => {
     const res = await request(await createAgentApp({
       contextSnapshot: {

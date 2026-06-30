@@ -37,4 +37,11 @@ describe("renderCapabilityRequestGuide (issue #2)", () => {
     expect(guide).toMatch(/request_secret_grant/);
     expect(guide).toMatch(/granted-secrets/);
   });
+
+  it("requires howToObtain to be numbered steps with exact clickable links", () => {
+    const guide = renderCapabilityRequestGuide("company-123");
+    expect(guide).toMatch(/NUMBERED list of steps/);
+    expect(guide).toContain("https://dashboard.stripe.com/apikeys");
+    expect(guide).toMatch(/paste it into this approval/i);
+  });
 });

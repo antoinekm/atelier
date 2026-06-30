@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { accessApi } from "../api/access";
 import { ApiError } from "../api/client";
@@ -117,23 +117,25 @@ export function useReadInboxItems() {
     return () => window.removeEventListener("storage", handleStorage);
   }, []);
 
-  const markRead = (id: string) => {
+  const markRead = useCallback((id: string) => {
     setReadItems((prev) => {
+      if (prev.has(id)) return prev;
       const next = new Set(prev);
       next.add(id);
       saveReadInboxItems(next);
       return next;
     });
-  };
+  }, []);
 
-  const markUnread = (id: string) => {
+  const markUnread = useCallback((id: string) => {
     setReadItems((prev) => {
+      if (!prev.has(id)) return prev;
       const next = new Set(prev);
       next.delete(id);
       saveReadInboxItems(next);
       return next;
     });
-  };
+  }, []);
 
   return { readItems, markRead, markUnread };
 }

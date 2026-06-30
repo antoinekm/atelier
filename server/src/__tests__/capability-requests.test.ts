@@ -31,4 +31,10 @@ describe("renderCapabilityRequestGuide (issue #2)", () => {
     expect(guide).toMatch(/own credential acquisition/i);
     expect(guide).toMatch(/one pending request per env key/i);
   });
+
+  it("documents secret sharing and revocation for the lead", () => {
+    const guide = renderCapabilityRequestGuide("company-123", { isLead: true });
+    expect(guide).toMatch(/request_secret_grant/);
+    expect(guide).toMatch(/granted-secrets/);
+  });
 });

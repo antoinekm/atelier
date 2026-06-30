@@ -29,6 +29,7 @@ export const typeLabel: Record<string, string> = {
   request_skill_install: "Skill Install",
   request_plugin_install: "Plugin Install",
   request_credential: "Credential Request",
+  request_secret_grant: "Secret Grant",
 };
 
 function firstNonEmptyString(...values: unknown[]): string | null {
@@ -71,6 +72,7 @@ export const typeIcon: Record<string, typeof UserPlus> = {
   request_skill_install: BookOpen,
   request_plugin_install: Puzzle,
   request_credential: KeyRound,
+  request_secret_grant: KeyRound,
 };
 
 export const defaultTypeIcon = ShieldCheck;
@@ -415,6 +417,32 @@ function CredentialRequestPayload({ payload }: { payload: Record<string, unknown
   );
 }
 
+function SecretGrantPayload({ payload }: { payload: Record<string, unknown> }) {
+  return (
+    <div className="mt-3 space-y-1.5 text-sm">
+      <PayloadField label="Secret" value={payload.secretName} />
+      <div className="flex items-center gap-2">
+        <span className="text-muted-foreground w-20 sm:w-24 shrink-0 text-xs">Env var</span>
+        <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">{String(payload.envKey ?? "—")}</code>
+      </div>
+      <PayloadField label="To agent" value={payload.targetAgentId} />
+      {!!payload.reason && (
+        <div className="flex items-start gap-2">
+          <span className="text-muted-foreground w-20 sm:w-24 shrink-0 text-xs pt-0.5">Reason</span>
+          <span className="text-muted-foreground">{String(payload.reason)}</span>
+        </div>
+      )}
+      <div className="mt-2 rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-muted-foreground">
+        Approving binds the existing company secret{" "}
+        <code className="font-mono">{String(payload.secretName ?? "")}</code> into the target
+        agent's run environment as{" "}
+        <code className="font-mono">${String(payload.envKey ?? "ENV")}</code>. The value is never
+        exposed. The company lead can revoke it later.
+      </div>
+    </div>
+  );
+}
+
 export function ApprovalPayloadRenderer({
   type,
   payload,
@@ -430,6 +458,7 @@ export function ApprovalPayloadRenderer({
   if (type === "request_skill_install") return <SkillInstallPayload payload={payload} />;
   if (type === "request_plugin_install") return <PluginInstallPayload payload={payload} />;
   if (type === "request_credential") return <CredentialRequestPayload payload={payload} />;
+  if (type === "request_secret_grant") return <SecretGrantPayload payload={payload} />;
   if (type === "request_board_approval") {
     return <BoardApprovalPayload payload={payload} hideTitle={hidePrimaryTitle} />;
   }

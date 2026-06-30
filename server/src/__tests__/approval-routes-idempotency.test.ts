@@ -25,6 +25,7 @@ const mockIssueApprovalService = vi.hoisted(() => ({
 
 const mockSecretService = vi.hoisted(() => ({
   normalizeHireApprovalPayloadForPersistence: vi.fn(),
+  getByName: vi.fn(),
 }));
 
 const mockLogActivity = vi.hoisted(() => vi.fn());
@@ -513,6 +514,145 @@ describe("approval routes idempotent retries", () => {
     expect(res.status, JSON.stringify(res.body)).toBe(400);
     expect(res.body.error).toBe("Validation error");
     expect(mockApprovalService.resubmit).not.toHaveBeenCalled();
+  });
+
+  it("blocks a reporting agent from creating a secret grant (lead-only)", async () => {
+    mockAgentService.getById.mockResolvedValue({ id: "agent-1", companyId: "company-1", reportsTo: "ceo-1" });
+    mockApprovalService.list.mockResolvedValue([]);
+
+    const res = await request(await createAgentApp())
+      .post("/api/companies/company-1/approvals")
+      .send({
+        type: "request_secret_grant",
+        payload: {
+          secretName: "GITHUB_TOKEN",
+          targetAgentId: "00000000-0000-0000-0000-0000000000aa",
+          envKey: "GITHUB_TOKEN",
+          reason: "share with CTO",
+        },
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(mockApprovalService.create).not.toHaveBeenCalled();
+  });
+
+  it("creates a secret grant from the lead when target and secret are valid", async () => {
+    mockAgentService.getById.mockImplementation(async (id: string) => {
+      if (id === "agent-1") return { id: "agent-1", companyId: "company-1", reportsTo: null };
+      if (id === "00000000-0000-0000-0000-0000000000aa")
+        return { id: "00000000-0000-0000-0000-0000000000aa", companyId: "company-1", reportsTo: "agent-1" };
+      return null;
+    });
+    mockSecretService.getByName.mockResolvedValue({ id: "secret-1", name: "GITHUB_TOKEN" });
+    mockApprovalService.list.mockResolvedValue([]);
+    mockApprovalService.create.mockResolvedValue({
+      id: "grant-1",
+      companyId: "company-1",
+      type: "request_secret_grant",
+      status: "pending",
+      payload: {},
+      requestedByAgentId: "agent-1",
+    });
+
+    const res = await request(await createAgentApp())
+      .post("/api/companies/company-1/approvals")
+      .send({
+        type: "request_secret_grant",
+        payload: {
+          secretName: "GITHUB_TOKEN",
+          targetAgentId: "00000000-0000-0000-0000-0000000000aa",
+          envKey: "GITHUB_TOKEN",
+          reason: "share with CTO",
+        },
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockApprovalService.create).toHaveBeenCalled();
+  });
+
+  it("rejects a duplicate pending secret grant for the same agent and envKey", async () => {
+    mockAgentService.getById.mockImplementation(async (id: string) => {
+      if (id === "agent-1") return { id: "agent-1", companyId: "company-1", reportsTo: null };
+      if (id === "00000000-0000-0000-0000-0000000000aa")
+        return { id: "00000000-0000-0000-0000-0000000000aa", companyId: "company-1", reportsTo: "agent-1" };
+      return null;
+    });
+    mockSecretService.getByName.mockResolvedValue({ id: "secret-1", name: "GITHUB_TOKEN" });
+    mockApprovalService.list.mockResolvedValue([
+      {
+        id: "existing-grant",
+        type: "request_secret_grant",
+        status: "pending",
+        payload: { targetAgentId: "00000000-0000-0000-0000-0000000000aa", envKey: "GITHUB_TOKEN" },
+      },
+    ]);
+
+    const res = await request(await createAgentApp())
+      .post("/api/companies/company-1/approvals")
+      .send({
+        type: "request_secret_grant",
+        payload: {
+          secretName: "GITHUB_TOKEN",
+          targetAgentId: "00000000-0000-0000-0000-0000000000aa",
+          envKey: "GITHUB_TOKEN",
+          reason: "share again",
+        },
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(mockApprovalService.create).not.toHaveBeenCalled();
+  });
+
+  it("binds the granted secret into the target agent on approval", async () => {
+    const grantPayload = {
+      secretName: "GITHUB_TOKEN",
+      targetAgentId: "00000000-0000-0000-0000-0000000000aa",
+      envKey: "GITHUB_TOKEN",
+      reason: "share",
+    };
+    mockApprovalService.getById.mockResolvedValue({
+      id: "grant-1",
+      companyId: "company-1",
+      type: "request_secret_grant",
+      status: "pending",
+      payload: grantPayload,
+      requestedByAgentId: "agent-1",
+    });
+    mockApprovalService.approve.mockResolvedValue({
+      approval: {
+        id: "grant-1",
+        companyId: "company-1",
+        type: "request_secret_grant",
+        status: "approved",
+        payload: grantPayload,
+        requestedByAgentId: "agent-1",
+      },
+      applied: true,
+    });
+    mockSecretService.getByName.mockResolvedValue({ id: "secret-1", name: "GITHUB_TOKEN" });
+    mockAgentService.getById.mockResolvedValue({
+      id: "00000000-0000-0000-0000-0000000000aa",
+      companyId: "company-1",
+      reportsTo: "agent-1",
+      adapterConfig: {},
+    });
+    mockAgentService.update.mockResolvedValue({});
+
+    const res = await request(await createApp())
+      .post("/api/approvals/grant-1/approve")
+      .send({});
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockAgentService.update).toHaveBeenCalledWith(
+      "00000000-0000-0000-0000-0000000000aa",
+      expect.objectContaining({
+        adapterConfig: expect.objectContaining({
+          env: expect.objectContaining({
+            GITHUB_TOKEN: { type: "secret_ref", secretId: "secret-1", version: "latest" },
+          }),
+        }),
+      }),
+    );
   });
 
   it("blocks status-only recovery runs from creating approvals", async () => {

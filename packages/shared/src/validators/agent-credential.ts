@@ -37,3 +37,25 @@ export const provideCredentialSchema = z.object({
   decisionNote: z.string().trim().max(2000).optional(),
 });
 export type ProvideCredential = z.infer<typeof provideCredentialSchema>;
+
+/**
+ * Payload the company lead submits to share an existing company secret with one of its
+ * sub-agents (`request_secret_grant`). The secret value is never in the payload: only its
+ * name is referenced. A human approves, and on approval the secret is bound into the
+ * target agent's run env as $envKey. The lead can later revoke the binding directly.
+ */
+export const requestSecretGrantSchema = z.object({
+  // Name of the existing company secret to share (must already exist in the company).
+  secretName: z.string().trim().min(1).max(120),
+  // The sub-agent that should receive access.
+  targetAgentId: z.string().uuid(),
+  // The environment variable the target agent will read at run time.
+  envKey: z
+    .string()
+    .trim()
+    .min(1)
+    .max(120)
+    .regex(/^[A-Z][A-Z0-9_]*$/, "envKey must be an UPPER_SNAKE_CASE environment variable name"),
+  reason: z.string().trim().min(1).max(2000),
+});
+export type RequestSecretGrant = z.infer<typeof requestSecretGrantSchema>;

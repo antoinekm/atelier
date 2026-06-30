@@ -478,8 +478,10 @@ export {
 export {
   requestCredentialSchema,
   provideCredentialSchema,
+  requestSecretGrantSchema,
   type RequestCredential,
   type ProvideCredential,
+  type RequestSecretGrant,
 } from "./agent-credential.js";
 
 export {

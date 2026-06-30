@@ -4761,6 +4761,13 @@ registerCurrentRoute({
   responses: { 204: r.noContent, 401: r.unauthorized, 404: r.notFound },
 });
 registerCurrentRoute({
+  method: "delete",
+  path: "/api/agents/{targetAgentId}/granted-secrets/{envKey}",
+  tags: ["agents"],
+  summary: "Revoke a granted secret from a sub-agent (company lead)",
+  responses: { 200: r.ok(), 401: r.unauthorized, 403: r.forbidden, 404: r.notFound },
+});
+registerCurrentRoute({
   method: "get",
   path: "/api/agents/{agentId}/email/inbox",
   tags: ["agents"],

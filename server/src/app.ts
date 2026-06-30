@@ -20,6 +20,7 @@ import { agentMcpServerRoutes } from "./routes/agent-mcp-servers.js";
 import { cloudflareIntegrationRoutes } from "./routes/cloudflare-integration.js";
 import { mailDomainRoutes } from "./routes/mail-domains.js";
 import { agentEmailRoutes } from "./routes/agent-email.js";
+import { agentSecretGrantRoutes } from "./routes/agent-secret-grants.js";
 import { projectRoutes } from "./routes/projects.js";
 import { issueRoutes } from "./routes/issues.js";
 import { issueTreeControlRoutes } from "./routes/issue-tree-control.js";
@@ -233,6 +234,7 @@ export async function createApp(
   api.use(cloudflareIntegrationRoutes(db));
   api.use(mailDomainRoutes(db));
   api.use(agentEmailRoutes(db, opts.storageService));
+  api.use(agentSecretGrantRoutes(db));
   api.use(assetRoutes(db, opts.storageService));
   api.use(projectRoutes(db));
   api.use(issueRoutes(db, opts.storageService, {

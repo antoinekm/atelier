@@ -154,14 +154,45 @@ export function approvalRoutes(
     const uniqueIssueIds = Array.from(new Set(issueIds));
     const { issueIds: _issueIds, ...approvalInput } = req.body;
 
-    // Per-type payload validation at creation. createApprovalSchema only checks that
-    // `payload` is an object, so without this an agent can persist a malformed
-    // request_credential (e.g. `key` instead of `envKey`, no reason/howToObtain). Such a
-    // request renders degraded in the board UI and cannot be completed, because
-    // provide-credential re-parses the payload and would throw. Reject it up front with a
-    // clear validation error the requesting agent can read and self-correct.
+    // request_credential is validated and gated here at creation. createApprovalSchema
+    // only checks that `payload` is an object, so the per-type rules live here.
     if (approvalInput.type === "request_credential") {
-      requestCredentialSchema.parse(approvalInput.payload);
+      // 1. Shape: reject a malformed payload (e.g. `key` instead of `envKey`, no
+      // reason/howToObtain) up front, otherwise it renders degraded in the board UI and
+      // provide-credential later re-parses it and would throw.
+      const credPayload = requestCredentialSchema.parse(approvalInput.payload);
+
+      // 2. Authority: credential acquisition is the company lead's job. A reporting agent
+      // (one with a manager) must route the need through its CEO, who owns requesting and
+      // provisioning credentials for the company. Block a subordinate's direct request.
+      const requestingAgentId =
+        approvalInput.requestedByAgentId ??
+        (req.actor.type === "agent" ? req.actor.agentId : null);
+      if (req.actor.type === "agent" && requestingAgentId) {
+        const requestingAgent = await agentsSvc.getById(requestingAgentId);
+        if (requestingAgent?.reportsTo) {
+          res.status(403).json({
+            error:
+              "Credential requests are made by your company lead (CEO), not by reporting agents. Ask your manager to request this credential for the company.",
+          });
+          return;
+        }
+      }
+
+      // 3. Dedup: one pending request per env var. The lead owns avoiding duplicates;
+      // this is the server safety net so a duplicate pending request cannot pile up.
+      const pending = await svc.list(companyId, "pending");
+      const duplicate = pending.find(
+        (a) =>
+          a.type === "request_credential" &&
+          (a.payload as { envKey?: string } | null)?.envKey === credPayload.envKey,
+      );
+      if (duplicate) {
+        res.status(409).json({
+          error: `A pending credential request for ${credPayload.envKey} already exists (${duplicate.id}). Resolve or resubmit it instead of creating a duplicate.`,
+        });
+        return;
+      }
     }
 
     const normalizedPayload =
@@ -596,11 +627,25 @@ export function approvalRoutes(
       return;
     }
 
-    // Re-validate a resubmitted credential payload for the same reason as creation:
-    // resubmit replaces the payload, so without this an agent could swap in a malformed
-    // request_credential that provide-credential cannot complete.
-    if (req.body.payload && existing.type === "request_credential") {
-      requestCredentialSchema.parse(req.body.payload);
+    if (existing.type === "request_credential") {
+      // Same authority rule as creation: a reporting agent cannot (re)submit a credential
+      // request; it routes through its CEO (the company lead).
+      if (req.actor.type === "agent" && req.actor.agentId) {
+        const requestingAgent = await agentsSvc.getById(req.actor.agentId);
+        if (requestingAgent?.reportsTo) {
+          res.status(403).json({
+            error:
+              "Credential requests are made by your company lead (CEO), not by reporting agents. Ask your manager to handle this credential for the company.",
+          });
+          return;
+        }
+      }
+      // Re-validate a resubmitted credential payload for the same reason as creation:
+      // resubmit replaces the payload, so without this an agent could swap in a malformed
+      // request_credential that provide-credential cannot complete.
+      if (req.body.payload) {
+        requestCredentialSchema.parse(req.body.payload);
+      }
     }
 
     const normalizedPayload = req.body.payload

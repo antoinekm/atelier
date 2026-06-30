@@ -18,6 +18,7 @@ async function act(callback: () => void | Promise<void>) {
 }
 
 let captured: ReturnType<typeof useReadInboxItems> | null = null;
+let cleanup: (() => void) | null = null;
 
 function Harness() {
   captured = useReadInboxItems();
@@ -31,7 +32,7 @@ async function render() {
   await act(async () => {
     root.render(<Harness />);
   });
-  return () => {
+  cleanup = () => {
     root.unmount();
     container.remove();
   };
@@ -41,29 +42,30 @@ describe("useReadInboxItems", () => {
   beforeEach(() => {
     localStorage.clear();
     captured = null;
+    cleanup = null;
   });
   afterEach(() => {
+    cleanup?.();
+    cleanup = null;
     localStorage.clear();
   });
 
   it("marks an inbox item read and persists it to localStorage", async () => {
-    const cleanup = await render();
+    await render();
     await act(async () => {
       captured!.markRead("approval:abc");
     });
     expect(captured!.readItems.has("approval:abc")).toBe(true);
     expect(loadReadInboxItems().has("approval:abc")).toBe(true);
-    cleanup();
   });
 
   it("keeps a stable markRead reference across re-renders (safe as an effect dependency)", async () => {
-    const cleanup = await render();
+    await render();
     const firstMarkRead = captured!.markRead;
     // marking triggers a state change and a re-render
     await act(async () => {
       captured!.markRead("approval:xyz");
     });
     expect(captured!.markRead).toBe(firstMarkRead);
-    cleanup();
   });
 });

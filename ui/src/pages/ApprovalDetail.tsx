@@ -73,11 +73,12 @@ export function ApprovalDetail() {
 
   // Opening an approval marks its inbox item read (clears the blue unread dot), matching
   // how opening an issue marks it read. The inbox read state is the localStorage set keyed
-  // `approval:<id>`; without this, viewing an approval never cleared the dot.
+  // `approval:<id>`; without this, viewing an approval never cleared the dot. Keyed off the
+  // route param so the dot clears on open without waiting for the fetch to resolve.
   const { markRead: markInboxItemRead } = useReadInboxItems();
   useEffect(() => {
-    if (approval?.id) markInboxItemRead(`approval:${approval.id}`);
-  }, [approval?.id, markInboxItemRead]);
+    if (approvalId) markInboxItemRead(`approval:${approvalId}`);
+  }, [approvalId, markInboxItemRead]);
 
   const refresh = () => {
     if (!approvalId) return;

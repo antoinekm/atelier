@@ -454,6 +454,25 @@ describe("approval routes idempotent retries", () => {
     expect(mockApprovalService.create).not.toHaveBeenCalled();
   });
 
+  it("uses the authenticated agent for the lead check (forged requestedByAgentId cannot bypass)", async () => {
+    // The authenticated agent (agent-1) reports to a manager. It tries to pass off the
+    // request as a lead via requestedByAgentId; the check must use req.actor.agentId.
+    mockAgentService.getById.mockResolvedValue({ id: "agent-1", reportsTo: "ceo-1" });
+    mockApprovalService.list.mockResolvedValue([]);
+
+    const res = await request(await createAgentApp())
+      .post("/api/companies/company-1/approvals")
+      .send({
+        type: "request_credential",
+        requestedByAgentId: "00000000-0000-0000-0000-0000000000ce",
+        payload: { envKey: "GITHUB_TOKEN", service: "github", reason: "Open the PR" },
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(mockAgentService.getById).toHaveBeenCalledWith("agent-1");
+    expect(mockApprovalService.create).not.toHaveBeenCalled();
+  });
+
   it("rejects a duplicate pending credential request for the same envKey", async () => {
     mockAgentService.getById.mockResolvedValue({ id: "agent-1", reportsTo: null });
     mockApprovalService.list.mockResolvedValue([

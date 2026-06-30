@@ -165,11 +165,10 @@ export function approvalRoutes(
       // 2. Authority: credential acquisition is the company lead's job. A reporting agent
       // (one with a manager) must route the need through its CEO, who owns requesting and
       // provisioning credentials for the company. Block a subordinate's direct request.
-      const requestingAgentId =
-        approvalInput.requestedByAgentId ??
-        (req.actor.type === "agent" ? req.actor.agentId : null);
-      if (req.actor.type === "agent" && requestingAgentId) {
-        const requestingAgent = await agentsSvc.getById(requestingAgentId);
+      // Use the authenticated agent (never the body-controlled requestedByAgentId) so a
+      // reporting agent cannot set requestedByAgentId to a lead to bypass this check.
+      if (req.actor.type === "agent" && req.actor.agentId) {
+        const requestingAgent = await agentsSvc.getById(req.actor.agentId);
         if (requestingAgent?.reportsTo) {
           res.status(403).json({
             error:

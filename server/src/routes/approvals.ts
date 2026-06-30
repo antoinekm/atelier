@@ -596,6 +596,13 @@ export function approvalRoutes(
       return;
     }
 
+    // Re-validate a resubmitted credential payload for the same reason as creation:
+    // resubmit replaces the payload, so without this an agent could swap in a malformed
+    // request_credential that provide-credential cannot complete.
+    if (req.body.payload && existing.type === "request_credential") {
+      requestCredentialSchema.parse(req.body.payload);
+    }
+
     const normalizedPayload = req.body.payload
       ? existing.type === "hire_agent"
         ? await secretsSvc.normalizeHireApprovalPayloadForPersistence(
